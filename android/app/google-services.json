@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "511578303045",
+    "project_id": "betterme-18411",
+    "storage_bucket": "betterme-18411.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:511578303045:android:4a532d2a939be5ceb8912c",
+        "android_client_info": {
+          "package_name": "com.betterme.betterme"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDSSoCsZk2PwUx63SbpwViwDirF8TSH3oY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
