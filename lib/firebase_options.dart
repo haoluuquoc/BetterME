@@ -30,12 +30,14 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'YOUR-API-KEY',
-    appId: 'YOUR-APP-ID',
-    messagingSenderId: 'YOUR-SENDER-ID',
-    projectId: 'YOUR-PROJECT-ID',
-    storageBucket: 'YOUR-STORAGE-BUCKET',
+    apiKey: 'AIzaSyClgVRhO0HOX1l9yOSQbWBL11ypbQO3Q1Q',
+    appId: '1:511578303045:ios:b9764b655944374eb8912c',
+    messagingSenderId: '511578303045',
+    projectId: 'betterme-18411',
+    storageBucket: 'betterme-18411.firebasestorage.app',
     iosBundleId: 'com.betterme.betterme',
+    iosClientId: '511578303045-4r2o6iv6f6udmlpcfbjrrh78k5susbrg.apps.googleusercontent.com',
+    androidClientId: '511578303045-equhps42mls4j01f01v9679rgkkf9d7i.apps.googleusercontent.com',
   );
 
   static const FirebaseOptions web = FirebaseOptions(

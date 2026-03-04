@@ -12,7 +12,7 @@ import 'services/notification_service.dart';
 bool get _isFirebaseConfigured {
   if (kIsWeb) return false; // Web chưa config
   if (defaultTargetPlatform == TargetPlatform.android) return true;
-  if (defaultTargetPlatform == TargetPlatform.iOS) return false; // iOS chưa config
+  if (defaultTargetPlatform == TargetPlatform.iOS) return true; // iOS đã config Firebase
   return false;
 }
 
