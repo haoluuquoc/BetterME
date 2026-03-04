@@ -483,6 +483,45 @@ class NotificationService {
           wakeup: true,
           allowWhileIdle: true,
         );
+      } else if (Platform.isIOS) {
+        // iOS: hiện notification "sẽ nhắc lại" và lên lịch snooze bằng zonedSchedule
+        const iosSnoozeDetails = DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+          categoryIdentifier: 'water_reminder',
+        );
+        final details = NotificationDetails(iOS: iosSnoozeDetails);
+        await _notifications.show(
+          0,
+          'Nhắc nhở uống nước',
+          'Sẽ nhắc lại sau 20 giây',
+          details,
+          payload: 'water_reminder',
+        );
+        
+        // Lên lịch snooze notification sau 20 giây
+        tz_data.initializeTimeZones();
+        final snoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 20));
+        const iosReminderDetails = DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+          interruptionLevel: InterruptionLevel.timeSensitive,
+          categoryIdentifier: 'water_reminder',
+        );
+        final reminderDetails = NotificationDetails(iOS: iosReminderDetails);
+        await _notifications.zonedSchedule(
+          98,
+          'Nhắc lại uống nước',
+          'Bấm "Uống ngay" hoặc "Để sau"',
+          snoozeTime,
+          reminderDetails,
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          payload: 'water_reminder',
+        );
       }
     } catch (e) {
       debugPrint('handleSnoozeLaunchAndExit error: $e');
@@ -503,6 +542,17 @@ class NotificationService {
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
+      notificationCategories: [
+        DarwinNotificationCategory(
+          'water_reminder',
+          actions: [
+            DarwinNotificationAction.plain('drink_now', 'Uống ngay',
+              options: {DarwinNotificationActionOption.foreground}),
+            DarwinNotificationAction.plain('snooze', 'Để sau',
+              options: {DarwinNotificationActionOption.foreground}),
+          ],
+        ),
+      ],
     );
     const initSettings = InitializationSettings(
       android: androidSettings,
@@ -645,6 +695,28 @@ class NotificationService {
         wakeup: true,
         allowWhileIdle: true,
       );
+    } else if (Platform.isIOS) {
+      // iOS: dùng zonedSchedule thay vì AndroidAlarmManager
+      final snoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 20));
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        interruptionLevel: InterruptionLevel.timeSensitive,
+        categoryIdentifier: 'water_reminder',
+      );
+      final details = NotificationDetails(iOS: iosDetails);
+      await _notifications.zonedSchedule(
+        98,
+        'Nhắc lại uống nước',
+        'Bấm "Uống ngay" hoặc "Để sau"',
+        snoozeTime,
+        details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: 'water_reminder',
+      );
     }
   }
   
@@ -658,6 +730,8 @@ class NotificationService {
     if (Platform.isAndroid) {
       await AndroidAlarmManager.cancel(98);
     }
+    // iOS: cancel scheduled snooze notification
+    await _notifications.cancel(98);
   }
   
   Future<void> showNotification({
@@ -674,6 +748,7 @@ class NotificationService {
       presentBadge: true,
       presentSound: true,
       interruptionLevel: InterruptionLevel.timeSensitive,
+      categoryIdentifier: 'water_reminder',
     );
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
     await _notifications.show(0, title, body, details, payload: payload);
@@ -746,6 +821,7 @@ class NotificationService {
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
+      categoryIdentifier: 'water_reminder',
     );
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
     await _notifications.show(0, title, body, details, payload: payload);
@@ -766,6 +842,7 @@ class NotificationService {
       presentBadge: true,
       presentSound: true,
       interruptionLevel: InterruptionLevel.timeSensitive,
+      categoryIdentifier: 'water_reminder',
     );
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
     
