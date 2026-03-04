@@ -52,7 +52,15 @@ Future<void> _scheduleSnoozeInBackground() async {
     
     final notifications = FlutterLocalNotificationsPlugin();
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: androidSettings);
+    const iosSettings = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    );
     await notifications.initialize(
       initSettings,
       onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
@@ -87,7 +95,6 @@ Future<void> _scheduleSnoozeInBackground() async {
       priority: Priority.max,
       playSound: playSound,
       enableVibration: enableVibration,
-
       fullScreenIntent: false,
       category: AndroidNotificationCategory.reminder,
       visibility: NotificationVisibility.public,
@@ -99,7 +106,16 @@ Future<void> _scheduleSnoozeInBackground() async {
         contentTitle: 'Nhắc nhở uống nước',
       ),
     );
-    final details = NotificationDetails(android: snoozeNotifDetails);
+    const iosSnoozeDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      categoryIdentifier: 'water_reminder',
+    );
+    final details = NotificationDetails(
+      android: snoozeNotifDetails,
+      iOS: iosSnoozeDetails,
+    );
     await notifications.show(
       0,
       'Nhắc nhở uống nước',
@@ -108,15 +124,40 @@ Future<void> _scheduleSnoozeInBackground() async {
       payload: 'water_reminder',
     );
     
-    await AndroidAlarmManager.initialize();
-    await AndroidAlarmManager.oneShot(
-      const Duration(seconds: 20),
-      98,
-      snoozeAlarmCallback,
-      exact: true,
-      wakeup: true,
-      allowWhileIdle: true,
-    );
+    if (!kIsWeb && Platform.isAndroid) {
+      await AndroidAlarmManager.initialize();
+      await AndroidAlarmManager.oneShot(
+        const Duration(seconds: 20),
+        98,
+        snoozeAlarmCallback,
+        exact: true,
+        wakeup: true,
+        allowWhileIdle: true,
+      );
+    } else if (!kIsWeb && Platform.isIOS) {
+      // iOS: dùng zonedSchedule thay vì AndroidAlarmManager
+      tz_data.initializeTimeZones();
+      final snoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 20));
+      const iosReminderDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        interruptionLevel: InterruptionLevel.timeSensitive,
+        categoryIdentifier: 'water_reminder',
+      );
+      final reminderDetails = NotificationDetails(iOS: iosReminderDetails);
+      await notifications.zonedSchedule(
+        98,
+        'Nhắc lại uống nước',
+        'Bấm "Uống ngay" hoặc "Để sau"',
+        snoozeTime,
+        reminderDetails,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: 'water_reminder',
+      );
+    }
     
     await prefs.setString('snooze_step', '${DateTime.now()}: Step 4 - Alarm scheduled DONE');
   } catch (e) {
@@ -132,16 +173,27 @@ Future<void> _cancelSnoozeInBackground() async {
   
   final notifications = FlutterLocalNotificationsPlugin();
   const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-  const initSettings = InitializationSettings(android: androidSettings);
+  const iosSettings = DarwinInitializationSettings(
+    requestAlertPermission: false,
+    requestBadgePermission: false,
+    requestSoundPermission: false,
+  );
+  const initSettings = InitializationSettings(
+    android: androidSettings,
+    iOS: iosSettings,
+  );
   await notifications.initialize(initSettings);
   await notifications.cancel(0);
+  await notifications.cancel(98); // Cancel scheduled snooze
   
   final prefs = await SharedPreferences.getInstance();
   await prefs.setBool('water_snooze_active', false);
   await prefs.setBool('pending_water_dialog', false);
   
-  await AndroidAlarmManager.initialize();
-  await AndroidAlarmManager.cancel(98);
+  if (!kIsWeb && Platform.isAndroid) {
+    await AndroidAlarmManager.initialize();
+    await AndroidAlarmManager.cancel(98);
+  }
 }
 
 /// Tạo notification details dựa trên chế độ âm thanh
@@ -241,7 +293,15 @@ Future<void> snoozeAlarmCallback() async {
     // Snooze fire → hiện notification
     final notifications = FlutterLocalNotificationsPlugin();
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: androidSettings);
+    const iosSettings = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    );
     await notifications.initialize(
       initSettings,
       onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
@@ -286,7 +346,17 @@ Future<void> snoozeAlarmCallback() async {
         contentTitle: 'Nhắc lại uống nước',
       ),
     );
-    final details = NotificationDetails(android: androidDetails);
+    const iosSnoozeDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      interruptionLevel: InterruptionLevel.timeSensitive,
+      categoryIdentifier: 'water_reminder',
+    );
+    final details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosSnoozeDetails,
+    );
     
     await notifications.show(
       0,
@@ -325,14 +395,32 @@ Future<void> alarmCallback() async {
     // Nếu app ở background/đóng → notification + fullScreenIntent xử lý
     final notifications = FlutterLocalNotificationsPlugin();
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: androidSettings);
+    const iosSettings = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    );
     await notifications.initialize(
       initSettings,
       onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
     
     final androidDetails = await _buildNotificationDetails('Đã đến giờ uống nước');
-    final details = NotificationDetails(android: androidDetails);
+    const iosAlarmDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      interruptionLevel: InterruptionLevel.timeSensitive,
+      categoryIdentifier: 'water_reminder',
+    );
+    final details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosAlarmDetails,
+    );
     
     await notifications.show(
       0,
