@@ -574,7 +574,7 @@ class NotificationService {
       }
     }
     
-    if (Platform.isAndroid) {
+    if (!kIsWeb && Platform.isAndroid) {
       await AndroidAlarmManager.initialize();
     }
     

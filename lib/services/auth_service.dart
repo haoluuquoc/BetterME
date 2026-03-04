@@ -1,19 +1,30 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 /// Authentication Service - Quản lý đăng nhập/đăng ký với Firebase
 class AuthService {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  /// Kiểm tra Firebase đã được khởi tạo chưa
+  bool get _isFirebaseReady {
+    try {
+      Firebase.app();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  FirebaseAuth get _auth => FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   /// Stream theo dõi trạng thái đăng nhập
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
   /// Người dùng hiện tại
-  User? get currentUser => _auth.currentUser;
+  User? get currentUser => _isFirebaseReady ? _auth.currentUser : null;
 
   /// Kiểm tra đã đăng nhập chưa
-  bool get isLoggedIn => _auth.currentUser != null;
+  bool get isLoggedIn => _isFirebaseReady && _auth.currentUser != null;
 
   // ==================== EMAIL/PASSWORD ====================
 

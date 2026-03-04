@@ -1,11 +1,20 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart'
+    show kIsWeb, debugPrint, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'app/app.dart';
 import 'services/notification_service.dart';
+
+/// Kiểm tra Firebase đã được cấu hình cho platform hiện tại chưa
+bool get _isFirebaseConfigured {
+  if (kIsWeb) return false; // Web chưa config
+  if (defaultTargetPlatform == TargetPlatform.android) return true;
+  if (defaultTargetPlatform == TargetPlatform.iOS) return false; // iOS chưa config
+  return false;
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,12 +52,14 @@ void main() async {
     runApp(const BetterMEApp());
     
     // Init Firebase + NotificationService NGẦM sau khi UI đã hiện
-    try {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-    } catch (e) {
-      debugPrint('Firebase init error: $e');
+    if (_isFirebaseConfigured) {
+      try {
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+      } catch (e) {
+        debugPrint('Firebase init error: $e');
+      }
     }
     try {
       await NotificationService().initialize();
@@ -57,12 +68,14 @@ void main() async {
     }
   } else {
     // Flow bình thường
-    try {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-    } catch (e) {
-      debugPrint('Firebase init error: $e');
+    if (_isFirebaseConfigured) {
+      try {
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+      } catch (e) {
+        debugPrint('Firebase init error: $e');
+      }
     }
     
     if (!kIsWeb) {
