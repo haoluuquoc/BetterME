@@ -388,7 +388,15 @@ class NotificationService {
     if (kIsWeb) return false;
     
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: androidSettings);
+    const iosSettings = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    );
     
     // Init plugin nhẹ (không cần callback đầy đủ ở đây, sẽ re-init trong initialize())
     await _notifications.initialize(initSettings);
@@ -424,56 +432,58 @@ class NotificationService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('water_snooze_active', true);
       
-      // Lấy chế độ âm thanh hiện tại
-      final mode = prefs.getString('water_notification_mode') ?? 'both';
-      bool playSound = mode == 'sound' || mode == 'both';
-      bool enableVibration = mode == 'vibrate' || mode == 'both';
-      
-      const drinkAction = AndroidNotificationAction(
-        'drink_now',
-        'Uống ngay',
-        showsUserInterface: true,
-      );
-      
-      // Hiện notification popup "Sẽ nhắc lại sau 20 giây"
-      final snoozeNotifDetails = AndroidNotificationDetails(
-        'water_snooze_v11_$mode',
-        'Nhắc nhở uống nước (để sau)',
-        channelDescription: 'Thông báo nhắc nhở sau khi bấm để sau',
-        importance: Importance.max,
-        priority: Priority.max,
-        playSound: playSound,
-        enableVibration: enableVibration,
-        fullScreenIntent: false,
-        category: AndroidNotificationCategory.reminder,
-        visibility: NotificationVisibility.public,
-        ongoing: true,
-        autoCancel: false,
-        actions: <AndroidNotificationAction>[drinkAction],
-        styleInformation: const BigTextStyleInformation(
+      if (Platform.isAndroid) {
+        // Lấy chế độ âm thanh hiện tại
+        final mode = prefs.getString('water_notification_mode') ?? 'both';
+        bool playSound = mode == 'sound' || mode == 'both';
+        bool enableVibration = mode == 'vibrate' || mode == 'both';
+        
+        const drinkAction = AndroidNotificationAction(
+          'drink_now',
+          'Uống ngay',
+          showsUserInterface: true,
+        );
+        
+        // Hiện notification popup "Sẽ nhắc lại sau 20 giây"
+        final snoozeNotifDetails = AndroidNotificationDetails(
+          'water_snooze_v11_$mode',
+          'Nhắc nhở uống nước (để sau)',
+          channelDescription: 'Thông báo nhắc nhở sau khi bấm để sau',
+          importance: Importance.max,
+          priority: Priority.max,
+          playSound: playSound,
+          enableVibration: enableVibration,
+          fullScreenIntent: false,
+          category: AndroidNotificationCategory.reminder,
+          visibility: NotificationVisibility.public,
+          ongoing: true,
+          autoCancel: false,
+          actions: <AndroidNotificationAction>[drinkAction],
+          styleInformation: const BigTextStyleInformation(
+            'Sẽ nhắc lại sau 20 giây',
+            contentTitle: 'Nhắc nhở uống nước',
+          ),
+        );
+        final details = NotificationDetails(android: snoozeNotifDetails);
+        await _notifications.show(
+          0,
+          'Nhắc nhở uống nước',
           'Sẽ nhắc lại sau 20 giây',
-          contentTitle: 'Nhắc nhở uống nước',
-        ),
-      );
-      final details = NotificationDetails(android: snoozeNotifDetails);
-      await _notifications.show(
-        0,
-        'Nhắc nhở uống nước',
-        'Sẽ nhắc lại sau 20 giây',
-        details,
-        payload: 'water_reminder',
-      );
-      
-      // Lên lịch snooze alarm sau 20 giây
-      await AndroidAlarmManager.initialize();
-      await AndroidAlarmManager.oneShot(
-        const Duration(seconds: 20),
-        98,
-        snoozeAlarmCallback,
-        exact: true,
-        wakeup: true,
-        allowWhileIdle: true,
-      );
+          details,
+          payload: 'water_reminder',
+        );
+        
+        // Lên lịch snooze alarm sau 20 giây
+        await AndroidAlarmManager.initialize();
+        await AndroidAlarmManager.oneShot(
+          const Duration(seconds: 20),
+          98,
+          snoozeAlarmCallback,
+          exact: true,
+          wakeup: true,
+          allowWhileIdle: true,
+        );
+      }
     } catch (e) {
       debugPrint('handleSnoozeLaunchAndExit error: $e');
     }

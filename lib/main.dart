@@ -16,7 +16,11 @@ void main() async {
   if (!kIsWeb) {
     // Kiểm tra nhanh: app có được launch từ alarm notification không?
     // Chỉ init plugin + check launch details, KHÔNG cần Firebase
-    isAlarmLaunch = await NotificationService().checkAlarmLaunch();
+    try {
+      isAlarmLaunch = await NotificationService().checkAlarmLaunch();
+    } catch (e) {
+      debugPrint('checkAlarmLaunch error (iOS?): $e');
+    }
     
     // Kiểm tra nếu app được launch từ nút "Để sau"
     // Nếu đúng → thoát app ngay, không load UI
@@ -29,8 +33,8 @@ void main() async {
     // SNOOZE LAUNCH: xử lý snooze trong background rồi thoát app ngay
     // Không hiện UI, không load Firebase
     await NotificationService().handleSnoozeLaunchAndExit();
-    // Thoát app ngay lập tức
-    if (Platform.isAndroid) {
+    // Thoát app ngay lập tức (chỉ Android)
+    if (!kIsWeb && Platform.isAndroid) {
       SystemNavigator.pop();
     }
     return;
@@ -39,19 +43,35 @@ void main() async {
     runApp(const BetterMEApp());
     
     // Init Firebase + NotificationService NGẦM sau khi UI đã hiện
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    await NotificationService().initialize();
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    } catch (e) {
+      debugPrint('Firebase init error: $e');
+    }
+    try {
+      await NotificationService().initialize();
+    } catch (e) {
+      debugPrint('NotificationService init error: $e');
+    }
   } else {
     // Flow bình thường
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    } catch (e) {
+      debugPrint('Firebase init error: $e');
+    }
     
     if (!kIsWeb) {
-      await NotificationService().initialize();
-      await NotificationService().requestPermission();
+      try {
+        await NotificationService().initialize();
+        await NotificationService().requestPermission();
+      } catch (e) {
+        debugPrint('NotificationService init error: $e');
+      }
     }
     
     runApp(const BetterMEApp());

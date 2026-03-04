@@ -40,10 +40,16 @@ class _SplashScreenState extends State<SplashScreen>
     _controller.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
         // Nếu đã đăng nhập → Home, chưa → Login
-        final authService = AuthService();
-        if (authService.isLoggedIn) {
-          Navigator.pushReplacementNamed(context, Routes.home);
-        } else {
+        try {
+          final authService = AuthService();
+          if (authService.isLoggedIn) {
+            Navigator.pushReplacementNamed(context, Routes.home);
+          } else {
+            Navigator.pushReplacementNamed(context, Routes.login);
+          }
+        } catch (e) {
+          // Firebase chưa init (iOS?) → vào Login
+          debugPrint('Auth check error: $e');
           Navigator.pushReplacementNamed(context, Routes.login);
         }
       }
