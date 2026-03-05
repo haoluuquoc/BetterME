@@ -71,7 +71,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _showAlarmScreen();
     }
   }
-  }
   
   /// Listener: nhận signal từ IsolateNameServer khi app đang mở
   void _setupAlarmListener() {
