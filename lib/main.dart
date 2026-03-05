@@ -92,7 +92,7 @@ void main() async {
           
           // Kiểm tra pending notifications
           final pending = await NotificationService()
-              ._notifications
+              .flutterLocalNotificationsPlugin
               .pendingNotificationRequests();
           debugPrint('📱 iOS Pending Notifications: ${pending.length}');
           
