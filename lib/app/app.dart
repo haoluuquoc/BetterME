@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:provider/provider.dart';
 import 'theme/app_theme.dart';
+import 'theme/theme_provider.dart';
 import 'routes/app_routes.dart';
 import '../services/notification_service.dart';
 
@@ -18,14 +20,21 @@ class BetterMEApp extends StatelessWidget {
       NotificationService.pendingPayload = null;
     }
 
-    return MaterialApp(
-      title: 'BetterME',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.light,
-      initialRoute: initialRoute,
-      onGenerateRoute: AppRouter.generateRoute,
+    return ChangeNotifierProvider(
+      create: (_) => ThemeProvider(),
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, child) {
+          return MaterialApp(
+            title: 'BetterME',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.lightThemeWithColor(themeProvider.currentColorTheme),
+            darkTheme: AppTheme.darkThemeWithColor(themeProvider.currentColorTheme),
+            themeMode: themeProvider.themeMode,
+            initialRoute: initialRoute,
+            onGenerateRoute: AppRouter.generateRoute,
+          );
+        },
+      ),
     );
   }
 }

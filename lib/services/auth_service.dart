@@ -134,6 +134,42 @@ class AuthService {
     }
   }
 
+  // ==================== CHANGE PASSWORD ====================
+
+  /// Đổi mật khẩu
+  Future<void> changePassword(String currentPassword, String newPassword) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw Exception('Chưa đăng nhập');
+    }
+    
+    if (user.email == null) {
+      throw Exception('Tài khoản không có email (đăng nhập bằng Google/Apple)');
+    }
+    
+    // Re-authenticate với mật khẩu hiện tại
+    final credential = EmailAuthProvider.credential(
+      email: user.email!,
+      password: currentPassword,
+    );
+    
+    try {
+      await user.reauthenticateWithCredential(credential);
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
+        throw Exception('Mật khẩu hiện tại không đúng');
+      }
+      throw Exception(_getErrorMessage(e.code));
+    }
+    
+    // Đổi mật khẩu
+    try {
+      await user.updatePassword(newPassword);
+    } on FirebaseAuthException catch (e) {
+      throw Exception(_getErrorMessage(e.code));
+    }
+  }
+
   // ==================== SIGN OUT ====================
 
   /// Đăng xuất

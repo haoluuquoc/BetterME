@@ -1,6 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../app/theme/app_colors.dart';
+import '../../app/theme/theme_provider.dart';
 import '../../app/routes/app_routes.dart';
 import '../../services/auth_service.dart';
 
@@ -13,24 +19,83 @@ class SettingsContent extends StatefulWidget {
 }
 
 class _SettingsContentState extends State<SettingsContent> {
+  String? _userEmail;
+  String? _avatarPath;
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+  
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final authService = AuthService();
+    final user = authService.currentUser;
+    
+    setState(() {
+      _userEmail = user?.email ?? prefs.getString('user_email');
+      _avatarPath = prefs.getString('user_avatar_path');
+    });
+  }
+  
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    
     return Scaffold(
       appBar: AppBar(title: const Text('Cài đặt')),
       body: ListView(
         children: [
+          // ====== AVATAR VÀ EMAIL ======
+          _buildUserHeader(context),
+          const Divider(),
+          
+          // ====== GIAO DIỆN ======
+          _buildSectionHeader('Giao diện'),
+          
+          // Dark Mode Toggle
+          SwitchListTile(
+            title: const Text('Chế độ tối'),
+            subtitle: Text(themeProvider.isDarkMode ? 'Đang bật' : 'Đang tắt'),
+            value: themeProvider.isDarkMode,
+            onChanged: (value) => themeProvider.toggleThemeMode(),
+            secondary: Icon(
+              themeProvider.isDarkMode ? Icons.dark_mode : Icons.light_mode,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          
+          // Color Picker
+          ListTile(
+            leading: Icon(Icons.palette, color: Theme.of(context).colorScheme.primary),
+            title: const Text('Màu chủ đạo'),
+            subtitle: Text(themeProvider.currentColorTheme.name),
+            trailing: _buildColorDot(themeProvider.currentColorTheme.primary, 24),
+            onTap: () => _showColorPicker(context, themeProvider),
+          ),
+          const Divider(),
+
           // ====== TÀI KHOẢN ======
           _buildSectionHeader('Tài khoản'),
           ListTile(
+            leading: const Icon(Icons.person_outline),
             title: const Text('Thông tin cá nhân'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _openProfilePage(context),
+          ),
+          ListTile(
+            leading: const Icon(Icons.lock_outline),
+            title: const Text('Đổi mật khẩu'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _showChangePasswordDialog(context),
           ),
           const Divider(),
 
           // ====== THÔNG BÁO ======
           _buildSectionHeader('Thông báo'),
           ListTile(
+            leading: const Icon(Icons.notifications_outlined),
             title: const Text('Cài đặt thông báo'),
             subtitle: const Text('Đang phát triển'),
             trailing: const Icon(Icons.chevron_right),
@@ -45,10 +110,12 @@ class _SettingsContentState extends State<SettingsContent> {
           // ====== VỀ ỨNG DỤNG ======
           _buildSectionHeader('Về ứng dụng'),
           ListTile(
+            leading: const Icon(Icons.info_outline),
             title: const Text('Phiên bản'),
             trailing: Text('1.0.0', style: TextStyle(color: Colors.grey[500])),
           ),
           ListTile(
+            leading: const Icon(Icons.group_outlined),
             title: const Text('Nhà phát triển'),
             trailing: Text('BetterME Team', style: TextStyle(color: Colors.grey[500])),
           ),
@@ -73,6 +140,371 @@ class _SettingsContentState extends State<SettingsContent> {
           ),
           const SizedBox(height: 24),
         ],
+      ),
+    );
+  }
+  
+  /// Header với avatar và email
+  Widget _buildUserHeader(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      child: Row(
+        children: [
+          // Avatar
+          GestureDetector(
+            onTap: () => _showAvatarOptions(context),
+            child: Stack(
+              children: [
+                CircleAvatar(
+                  radius: 40,
+                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                  backgroundImage: _avatarPath != null && !kIsWeb
+                      ? FileImage(File(_avatarPath!))
+                      : null,
+                  child: _avatarPath == null
+                      ? Icon(
+                          Icons.person,
+                          size: 40,
+                          color: Theme.of(context).colorScheme.primary,
+                        )
+                      : null,
+                ),
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.camera_alt,
+                      size: 16,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Email và tên
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Xin chào!',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _userEmail ?? 'Chưa đăng nhập',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// Hiện options chọn avatar
+  void _showAvatarOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Chọn từ thư viện'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Chụp ảnh'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickImage(ImageSource.camera);
+              },
+            ),
+            if (_avatarPath != null) 
+              ListTile(
+                leading: const Icon(Icons.delete, color: AppColors.error),
+                title: const Text('Xóa ảnh', style: TextStyle(color: AppColors.error)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _removeAvatar();
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Future<void> _pickImage(ImageSource source) async {
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tính năng này chưa hỗ trợ trên web')),
+      );
+      return;
+    }
+    
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: source,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 80,
+      );
+      
+      if (pickedFile != null) {
+        // Lưu ảnh vào app directory
+        final appDir = await getApplicationDocumentsDirectory();
+        final fileName = 'avatar_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final savedImage = await File(pickedFile.path).copy('${appDir.path}/$fileName');
+        
+        // Xóa ảnh cũ nếu có
+        if (_avatarPath != null) {
+          try {
+            await File(_avatarPath!).delete();
+          } catch (_) {}
+        }
+        
+        // Lưu path vào SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('user_avatar_path', savedImage.path);
+        
+        setState(() {
+          _avatarPath = savedImage.path;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã cập nhật ảnh đại diện')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi: $e')),
+      );
+    }
+  }
+  
+  Future<void> _removeAvatar() async {
+    if (_avatarPath != null) {
+      try {
+        await File(_avatarPath!).delete();
+      } catch (_) {}
+    }
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('user_avatar_path');
+    
+    setState(() {
+      _avatarPath = null;
+    });
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đã xóa ảnh đại diện')),
+    );
+  }
+  
+  /// Hiện color picker với các chấm màu
+  void _showColorPicker(BuildContext context, ThemeProvider themeProvider) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Chọn màu chủ đạo',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 20),
+              // Các chấm màu giống như hình
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: availableColorThemes.map((colorTheme) {
+                  final isSelected = themeProvider.currentColorTheme.id == colorTheme.id;
+                  return GestureDetector(
+                    onTap: () {
+                      themeProvider.setColorTheme(colorTheme);
+                      Navigator.pop(ctx);
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isSelected ? colorTheme.primary : Colors.transparent,
+                          width: 3,
+                        ),
+                      ),
+                      child: _buildColorDot(colorTheme.primary, isSelected ? 32 : 28),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  /// Tạo chấm màu tròn
+  Widget _buildColorDot(Color color, double size) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.4),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// Dialog đổi mật khẩu
+  void _showChangePasswordDialog(BuildContext context) {
+    final currentPasswordCtrl = TextEditingController();
+    final newPasswordCtrl = TextEditingController();
+    final confirmPasswordCtrl = TextEditingController();
+    bool isLoading = false;
+    bool showCurrentPassword = false;
+    bool showNewPassword = false;
+    bool showConfirmPassword = false;
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDState) => AlertDialog(
+          title: const Text('Đổi mật khẩu'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: currentPasswordCtrl,
+                  obscureText: !showCurrentPassword,
+                  decoration: InputDecoration(
+                    labelText: 'Mật khẩu hiện tại',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(showCurrentPassword ? Icons.visibility_off : Icons.visibility),
+                      onPressed: () => setDState(() => showCurrentPassword = !showCurrentPassword),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: newPasswordCtrl,
+                  obscureText: !showNewPassword,
+                  decoration: InputDecoration(
+                    labelText: 'Mật khẩu mới',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(showNewPassword ? Icons.visibility_off : Icons.visibility),
+                      onPressed: () => setDState(() => showNewPassword = !showNewPassword),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: confirmPasswordCtrl,
+                  obscureText: !showConfirmPassword,
+                  decoration: InputDecoration(
+                    labelText: 'Xác nhận mật khẩu mới',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(showConfirmPassword ? Icons.visibility_off : Icons.visibility),
+                      onPressed: () => setDState(() => showConfirmPassword = !showConfirmPassword),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Hủy'),
+            ),
+            ElevatedButton(
+              onPressed: isLoading ? null : () async {
+                // Validate
+                if (newPasswordCtrl.text.length < 6) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Mật khẩu mới phải có ít nhất 6 ký tự')),
+                  );
+                  return;
+                }
+                if (newPasswordCtrl.text != confirmPasswordCtrl.text) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Mật khẩu xác nhận không khớp')),
+                  );
+                  return;
+                }
+                
+                setDState(() => isLoading = true);
+                
+                try {
+                  final authService = AuthService();
+                  await authService.changePassword(
+                    currentPasswordCtrl.text,
+                    newPasswordCtrl.text,
+                  );
+                  
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Đổi mật khẩu thành công!'),
+                      backgroundColor: AppColors.success,
+                    ),
+                  );
+                } catch (e) {
+                  setDState(() => isLoading = false);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Lỗi: ${e.toString()}'),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                }
+              },
+              child: isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Đổi mật khẩu'),
+            ),
+          ],
+        ),
       ),
     );
   }
