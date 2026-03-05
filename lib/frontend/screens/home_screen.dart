@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -50,7 +51,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       // App vừa quay lại foreground → kiểm tra có pending alarm không
       _checkPendingNotification();
+      
+      // iOS: kiểm tra notification đã fire trong lúc ở background
+      // Và reschedule thêm notifications (iOS giới hạn 64 pending)
+      if (!kIsWeb && Platform.isIOS) {
+        _checkIOSAlarmAndReschedule();
+      }
     }
+  }
+  
+  /// iOS: kiểm tra có alarm đã fire khi app ở background không, và reschedule
+  void _checkIOSAlarmAndReschedule() async {
+    // Reschedule để luôn có đủ notifications cho tương lai
+    NotificationService().rescheduleWaterReminder();
+    
+    // Kiểm tra xem có alarm đã trôi qua chưa xử lý không
+    final shouldShowAlarm = await NotificationService().checkIOSPendingAlarm();
+    if (shouldShowAlarm && mounted && !_isAlarmShowing) {
+      _showAlarmScreen();
+    }
+  }
   }
   
   /// Listener: nhận signal từ IsolateNameServer khi app đang mở

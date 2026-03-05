@@ -76,7 +76,8 @@ Future<void> _scheduleSnoozeInBackground() async {
     
     await prefs.setString('snooze_step', '${DateTime.now()}: Step 3 - Show notification');
     
-    // Hiện notification trên thanh báo "sẽ nhắc lại sau 20 giây"
+    // Hiện notification trên thanh báo thời gian snooze (iOS: 1 phút, Android: 20 giây)
+    final snoozeText = Platform.isIOS ? '1 phút' : '20 giây';
     final mode = prefs.getString('water_notification_mode') ?? 'both';
     bool playSound = mode == 'sound' || mode == 'both';
     bool enableVibration = mode == 'vibrate' || mode == 'both';
@@ -101,8 +102,8 @@ Future<void> _scheduleSnoozeInBackground() async {
       ongoing: true,
       autoCancel: false,
       actions: <AndroidNotificationAction>[drinkAction],
-      styleInformation: const BigTextStyleInformation(
-        'Sẽ nhắc lại sau 20 giây',
+      styleInformation: BigTextStyleInformation(
+        'Sẽ nhắc lại sau $snoozeText',
         contentTitle: 'Nhắc nhở uống nước',
       ),
     );
@@ -119,7 +120,7 @@ Future<void> _scheduleSnoozeInBackground() async {
     await notifications.show(
       0,
       'Nhắc nhở uống nước',
-      'Sẽ nhắc lại sau 20 giây',
+      'Sẽ nhắc lại sau $snoozeText',
       details,
       payload: 'water_reminder',
     );
@@ -136,8 +137,9 @@ Future<void> _scheduleSnoozeInBackground() async {
       );
     } else if (!kIsWeb && Platform.isIOS) {
       // iOS: dùng zonedSchedule thay vì AndroidAlarmManager
+      // iOS yêu cầu tối thiểu 60 giây
       tz_data.initializeTimeZones();
-      final snoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 20));
+      final snoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 60));
       const iosReminderDetails = DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
@@ -573,6 +575,7 @@ class NotificationService {
         );
       } else if (Platform.isIOS) {
         // iOS: hiện notification "sẽ nhắc lại" và lên lịch snooze bằng zonedSchedule
+        // iOS yêu cầu tối thiểu 60 giây
         const iosSnoozeDetails = DarwinNotificationDetails(
           presentAlert: true,
           presentBadge: true,
@@ -583,14 +586,14 @@ class NotificationService {
         await _notifications.show(
           0,
           'Nhắc nhở uống nước',
-          'Sẽ nhắc lại sau 20 giây',
+          'Sẽ nhắc lại sau 1 phút',
           details,
           payload: 'water_reminder',
         );
         
-        // Lên lịch snooze notification sau 20 giây
+        // Lên lịch snooze notification sau 60 giây (iOS minimum)
         tz_data.initializeTimeZones();
-        final snoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 20));
+        final snoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 60));
         const iosReminderDetails = DarwinNotificationDetails(
           presentAlert: true,
           presentBadge: true,
@@ -610,6 +613,7 @@ class NotificationService {
               UILocalNotificationDateInterpretation.absoluteTime,
           payload: 'water_reminder',
         );
+        debugPrint('🍎 iOS: Snooze scheduled for 60s at ${snoozeTime.toString()}');
       }
     } catch (e) {
       debugPrint('handleSnoozeLaunchAndExit error: $e');
@@ -670,9 +674,10 @@ class NotificationService {
             await prefs.setBool('pending_water_dialog', false);
             
             await _instance.scheduleSnooze();
+            final snoozeText = Platform.isIOS ? '1 phút' : '20 giây';
             await _instance.showSimpleNotification(
               title: 'Nhắc nhở uống nước',
-              body: 'Sẽ nhắc lại sau 20 giây',
+              body: 'Sẽ nhắc lại sau $snoozeText',
               payload: 'water_reminder',
             );
             
@@ -783,9 +788,10 @@ class NotificationService {
         wakeup: true,
         allowWhileIdle: true,
       );
+      debugPrint('🔔 Android: Snooze scheduled for 20s');
     } else if (Platform.isIOS) {
-      // iOS: dùng zonedSchedule thay vì AndroidAlarmManager
-      final snoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 20));
+      // iOS: yêu cầu tối thiểu 60 giây cho zonedSchedule
+      final snoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 60));
       const iosDetails = DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
@@ -805,6 +811,7 @@ class NotificationService {
             UILocalNotificationDateInterpretation.absoluteTime,
         payload: 'water_reminder',
       );
+      debugPrint('🍎 iOS: Snooze scheduled for 60s at ${snoozeTime.toString()}');
     }
   }
   
@@ -956,6 +963,17 @@ class NotificationService {
   }) async {
     if (kIsWeb) return;
     
+    // iOS yêu cầu interval tối thiểu 60 giây
+    Duration adjustedInterval = interval;
+    if (Platform.isIOS && interval.inSeconds < 60) {
+      adjustedInterval = const Duration(seconds: 60);
+      debugPrint('⚠️ iOS: Adjusted interval from ${interval.inSeconds}s to 60s (minimum)');
+    }
+    
+    debugPrint('🔔 schedulePeriodicNotification:');
+    debugPrint('   Platform: ${Platform.isIOS ? "iOS" : "Android"}');
+    debugPrint('   Interval: ${adjustedInterval.inSeconds}s');
+    
     await cancelAll();
     await cancelSnooze();
     if (Platform.isAndroid) {
@@ -964,7 +982,7 @@ class NotificationService {
     
     if (Platform.isAndroid) {
       await AndroidAlarmManager.periodic(
-        interval,
+        adjustedInterval,
         99,
         alarmCallback,
         exact: true,
@@ -972,12 +990,15 @@ class NotificationService {
         rescheduleOnReboot: true,
         allowWhileIdle: true,
       );
+      debugPrint('✅ Android AlarmManager periodic set');
     }
     
     final now = DateTime.now();
-    final count = interval.inSeconds < 120 ? 48 : 24;
-    for (int i = 1; i <= count; i++) {
-      final scheduledTime = now.add(interval * i);
+    // iOS giới hạn 64 pending notifications, dùng tối đa 50 để chừa chỗ cho snooze
+    final maxCount = (!kIsWeb && Platform.isIOS) ? 50 : (adjustedInterval.inSeconds < 120 ? 48 : 24);
+    int scheduled = 0;
+    for (int i = 1; i <= maxCount * 2 && scheduled < maxCount; i++) {
+      final scheduledTime = now.add(adjustedInterval * i);
       if (scheduledTime.hour >= 6 && scheduledTime.hour < 22) {
         await scheduleNotification(
           id: 1000 + i,
@@ -986,12 +1007,20 @@ class NotificationService {
           scheduledTime: scheduledTime,
           payload: payload,
         );
+        scheduled++;
+        if (scheduled <= 3) {
+          debugPrint('   [$scheduled] Scheduled for: ${scheduledTime.toString()}');
+        }
       }
     }
     
+    debugPrint('✅ Total scheduled: $scheduled notifications');
+    
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('water_reminder_interval_seconds', interval.inSeconds);
+    await prefs.setInt('water_reminder_interval_seconds', adjustedInterval.inSeconds);
     await prefs.setBool('water_reminder_enabled', true);
+    // Lưu checkpoint cho iOS
+    await prefs.setInt('ios_last_alarm_check_ms', now.millisecondsSinceEpoch);
   }
   
   Future<void> cancelNotification(int id) async {
@@ -1018,6 +1047,40 @@ class NotificationService {
         payload: 'water_reminder',
       );
     }
+  }
+  
+  /// iOS: Kiểm tra xem có notification nào đã fire (theo lịch) chưa được xử lý không
+  /// Gọi khi app resume để hiện alarm screen nếu cần
+  Future<bool> checkIOSPendingAlarm() async {
+    if (kIsWeb || !Platform.isIOS) return false;
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    
+    final enabled = prefs.getBool('water_reminder_enabled') ?? false;
+    if (!enabled) return false;
+    
+    final blocked = prefs.getBool('block_alarm_screen') ?? false;
+    if (blocked) return false;
+    
+    // Kiểm tra thời gian scheduled gần nhất có đã qua chưa
+    final lastCheckMs = prefs.getInt('ios_last_alarm_check_ms') ?? 0;
+    final intervalSeconds = prefs.getInt('water_reminder_interval_seconds') ?? 1800;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    
+    // Nếu đã qua > interval từ lần check cuối, có thể có alarm chưa xử lý
+    if (lastCheckMs > 0 && (now - lastCheckMs) >= (intervalSeconds * 1000)) {
+      // Cập nhật checkpoint
+      await prefs.setInt('ios_last_alarm_check_ms', now);
+      return true;
+    }
+    
+    // Cập nhật checkpoint nếu chưa có
+    if (lastCheckMs == 0) {
+      await prefs.setInt('ios_last_alarm_check_ms', now);
+    }
+    
+    return false;
   }
   
   Future<void> stopWaterReminder() async {

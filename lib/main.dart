@@ -39,15 +39,18 @@ void main() async {
   }
   
   if (isSnoozeLaunch) {
-    // SNOOZE LAUNCH: xử lý snooze trong background rồi thoát app ngay
-    // Không hiện UI, không load Firebase
+    // SNOOZE LAUNCH: xử lý snooze rồi thoát (Android) hoặc hiện app (iOS)
     await NotificationService().handleSnoozeLaunchAndExit();
-    // Thoát app ngay lập tức (chỉ Android)
     if (!kIsWeb && Platform.isAndroid) {
+      // Android: thoát app ngay, snooze đã được AlarmManager lên lịch
       SystemNavigator.pop();
+      return;
     }
-    return;
-  } else if (isAlarmLaunch) {
+    // iOS: không thể thoát app → tiếp tục load Firebase + hiện UI bình thường
+    // Snooze notification đã được zonedSchedule lên lịch, sẽ fire đúng giờ
+  }
+  
+  if (!isSnoozeLaunch && isAlarmLaunch) {
     // ALARM LAUNCH: hiện alarm screen NGAY LẬP TỨC, không đợi Firebase
     runApp(const BetterMEApp());
     
@@ -81,7 +84,26 @@ void main() async {
     if (!kIsWeb) {
       try {
         await NotificationService().initialize();
-        await NotificationService().requestPermission();
+        final permissionGranted = await NotificationService().requestPermission();
+        
+        // Debug logs cho iOS
+        if (Platform.isIOS) {
+          debugPrint('🍎 iOS Notification Permission: $permissionGranted');
+          
+          // Kiểm tra pending notifications
+          final pending = await NotificationService()
+              ._notifications
+              .pendingNotificationRequests();
+          debugPrint('📱 iOS Pending Notifications: ${pending.length}');
+          
+          for (var i = 0; i < pending.length && i < 5; i++) {
+            debugPrint('   [${i + 1}] ID: ${pending[i].id}, Title: ${pending[i].title}');
+          }
+          
+          if (pending.isEmpty) {
+            debugPrint('⚠️ WARNING: No pending notifications on iOS!');
+          }
+        }
       } catch (e) {
         debugPrint('NotificationService init error: $e');
       }
