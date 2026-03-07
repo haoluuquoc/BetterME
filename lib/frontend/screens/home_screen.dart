@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../app/theme/app_colors.dart';
 import '../../app/routes/app_routes.dart';
 import '../../services/notification_service.dart';
+import '../../services/firestore_service.dart';
 import 'water_alarm_screen.dart';
 import 'settings_screen.dart';
 
@@ -81,7 +82,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await prefs.setBool('block_alarm_screen', false);
       
       if (mounted && !_isAlarmShowing) {
-        _showAlarmScreen();
+        // Check nếu là snooze (từ snooze callback)
+        final wasSnooze = prefs.getBool('water_snooze_just_fired') ?? false;
+        await prefs.setBool('water_snooze_just_fired', false);
+        _showAlarmScreen(isSnooze: wasSnooze);
       }
     });
   }
@@ -558,15 +562,15 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
   // Lịch sử uống nước hôm nay
   final List<Map<String, dynamic>> _todayHistory = [];
   
-  // Lịch sử các ngày trước
-  final List<Map<String, dynamic>> _weekHistory = [
-    {'date': DateTime.now().subtract(const Duration(days: 6)), 'amount': 1800},
-    {'date': DateTime.now().subtract(const Duration(days: 5)), 'amount': 2100},
-    {'date': DateTime.now().subtract(const Duration(days: 4)), 'amount': 1500},
-    {'date': DateTime.now().subtract(const Duration(days: 3)), 'amount': 2000},
-    {'date': DateTime.now().subtract(const Duration(days: 2)), 'amount': 2200},
-    {'date': DateTime.now().subtract(const Duration(days: 1)), 'amount': 1900},
-  ];
+  // Lịch sử các ngày trước (load từ SharedPreferences)
+  List<Map<String, dynamic>> _weekHistory = [];
+  
+  /// Tạo date key cho SharedPreferences: "2026-03-07"
+  String _dateKey(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+  
+  String get _todayKey => _dateKey(DateTime.now());
   
   
   @override
@@ -574,6 +578,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _loadReminderSettings();
+    _loadWaterData();
   }
 
   Future<void> _loadReminderSettings() async {
@@ -588,6 +593,61 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     }
   }
 
+  /// Load dữ liệu uống nước theo ngày từ SharedPreferences
+  Future<void> _loadWaterData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final today = _todayKey;
+    
+    // Kiểm tra ngày mới → reset nếu cần
+    final lastDate = prefs.getString('water_last_date') ?? '';
+    if (lastDate != today) {
+      // Lưu dữ liệu ngày cũ vào history trước khi reset
+      if (lastDate.isNotEmpty) {
+        final oldMl = prefs.getInt('water_current_ml') ?? 0;
+        if (oldMl > 0) {
+          await prefs.setInt('water_history_$lastDate', oldMl);
+        }
+      }
+      // Reset cho ngày mới
+      await prefs.setInt('water_current_ml', 0);
+      await prefs.setString('water_last_date', today);
+      await prefs.remove('water_today_entries');
+    }
+    
+    // Load dữ liệu hôm nay
+    final currentMl = prefs.getInt('water_current_ml') ?? 0;
+    final entries = prefs.getStringList('water_today_entries') ?? [];
+    
+    final List<Map<String, dynamic>> loadedHistory = [];
+    for (final entry in entries) {
+      // Format: "timestamp|amount"
+      final parts = entry.split('|');
+      if (parts.length == 2) {
+        loadedHistory.add({
+          'id': int.tryParse(parts[0]) ?? 0,
+          'time': DateTime.fromMillisecondsSinceEpoch(int.tryParse(parts[0]) ?? 0),
+          'amount': int.tryParse(parts[1]) ?? 0,
+        });
+      }
+    }
+    
+    // Load lịch sử 7 ngày trước
+    final List<Map<String, dynamic>> weekData = [];
+    for (int i = 1; i <= 7; i++) {
+      final date = DateTime.now().subtract(Duration(days: i));
+      final key = _dateKey(date);
+      final amount = prefs.getInt('water_history_$key') ?? 0;
+      weekData.add({'date': date, 'amount': amount});
+    }
+    
+    setState(() {
+      _currentMl = currentMl;
+      _todayHistory.clear();
+      _todayHistory.addAll(loadedHistory);
+      _weekHistory = weekData.reversed.toList();
+    });
+  }
+
   @override
   void dispose() {
     _tabController.dispose();
@@ -595,20 +655,53 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
   }
   
   // Lên lịch notification cho background (khi app đóng)
-  void _scheduleBackgroundNotifications() {
-    if (kIsWeb) return;
-    if (!_reminderEnabled) return;
+  Future<bool> _scheduleBackgroundNotifications() async {
+    if (kIsWeb) return false;
+    if (!_reminderEnabled) return false;
     
-    final interval = _getIntervalDuration();
-    
-    // Lên lịch notification
-    NotificationService().schedulePeriodicNotification(
-      id: 1,
-      title: 'Đã đến uống nước!',
-      body: 'Gợi ý: ${_suggestedAmountPerDrink}ml. Uống ngay!',
-      interval: interval,
-      payload: 'water_reminder',
-    );
+    try {
+      // Yêu cầu quyền notification (Android 13+)
+      final notifPermission = await NotificationService().requestPermission();
+      if (!notifPermission) {
+        debugPrint('⚠️ Notification permission denied');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Vui lòng cấp quyền thông báo để nhận nhắc nhở')),
+          );
+        }
+        return false;
+      }
+      
+      // Yêu cầu quyền exact alarm (Android 12+)
+      if (!kIsWeb && Platform.isAndroid) {
+        final exactAlarmOk = await NotificationService().requestExactAlarmPermission();
+        if (!exactAlarmOk) {
+          debugPrint('⚠️ Exact alarm permission denied');
+        }
+      }
+      
+      final interval = _getIntervalDuration();
+      
+      // Lên lịch notification
+      await NotificationService().schedulePeriodicNotification(
+        id: 1,
+        title: 'Đã đến uống nước!',
+        body: 'Gợi ý: ${_suggestedAmountPerDrink}ml. Uống ngay!',
+        interval: interval,
+        payload: 'water_reminder',
+      );
+      
+      debugPrint('✅ Background notifications scheduled with interval: ${interval.inMinutes} min');
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error scheduling notifications: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi lên lịch nhắc nhở: $e')),
+        );
+      }
+      return false;
+    }
   }
   
   void _stopBackgroundNotifications() {
@@ -732,11 +825,30 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     }
   }
   
-  /// Sync tiến độ uống nước lên SharedPreferences
+  /// Sync tiến độ uống nước lên SharedPreferences + Firestore
   Future<void> _syncWaterProgress() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('water_current_ml', _currentMl);
     await prefs.setInt('water_daily_goal_ml', _dailyGoalMl);
+    await prefs.setString('water_last_date', _todayKey);
+    
+    // Lưu lịch sử entries hôm nay
+    final entries = _todayHistory.map((e) {
+      final time = e['time'] as DateTime;
+      return '${time.millisecondsSinceEpoch}|${e['amount']}';
+    }).toList();
+    await prefs.setStringList('water_today_entries', entries);
+    
+    // Lưu tổng ml hôm nay vào history key
+    await prefs.setInt('water_history_$_todayKey', _currentMl);
+    
+    // Đồng bộ lên Firestore
+    FirestoreService().saveWaterDaily(
+      dateKey: _todayKey,
+      totalMl: _currentMl,
+      goalMl: _dailyGoalMl,
+      entries: _todayHistory,
+    );
   }
 
   void _showContinueDialog(int ml) {
@@ -1269,14 +1381,34 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                   _reminderEnabled = value;
                   if (value) {
                     _reminderStartedAt = DateTime.now();
-                    _scheduleBackgroundNotifications();
                   } else {
                     _reminderStartedAt = null;
-                    _stopBackgroundNotifications();
                   }
                 });
+                
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setBool('water_reminder_enabled', value);
+                
+                if (value) {
+                  final success = await _scheduleBackgroundNotifications();
+                  if (success && mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('✅ Đã bật nhắc nhở mỗi ${_getIntervalLabel(_reminderIntervalMinutes)}'),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  } else if (!success && mounted) {
+                    // Revert toggle nếu không lên lịch được
+                    setState(() {
+                      _reminderEnabled = false;
+                      _reminderStartedAt = null;
+                    });
+                    await prefs.setBool('water_reminder_enabled', false);
+                  }
+                } else {
+                  _stopBackgroundNotifications();
+                }
               },
             ),
           ),
@@ -1371,7 +1503,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                               });
                               final prefs = await SharedPreferences.getInstance();
                               await prefs.setInt('water_reminder_interval_value', value);
-                              _scheduleBackgroundNotifications();
+                              await _scheduleBackgroundNotifications();
                             }
                           },
                         ),
@@ -1756,6 +1888,69 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   
   double get _balance => _totalIncome - _totalExpense;
 
+  @override
+  void initState() {
+    super.initState();
+    _loadTransactions();
+  }
+
+  /// Load giao dịch từ SharedPreferences, rồi sync từ Firestore
+  Future<void> _loadTransactions() async {
+    // Load local trước cho nhanh
+    final prefs = await SharedPreferences.getInstance();
+    final data = prefs.getStringList('expense_transactions') ?? [];
+    
+    final List<Map<String, dynamic>> loaded = [];
+    for (final entry in data) {
+      // Format: "type|amount|category|note|timestamp"
+      final parts = entry.split('|');
+      if (parts.length >= 5) {
+        loaded.add({
+          'type': parts[0],
+          'amount': double.tryParse(parts[1]) ?? 0.0,
+          'category': parts[2],
+          'note': parts[3],
+          'date': DateTime.fromMillisecondsSinceEpoch(int.tryParse(parts[4]) ?? 0),
+        });
+      }
+    }
+    
+    setState(() {
+      _transactions.clear();
+      _transactions.addAll(loaded);
+    });
+    
+    // Sync từ Firestore nếu local trống
+    if (loaded.isEmpty) {
+      final cloudData = await FirestoreService().loadTransactions();
+      if (cloudData.isNotEmpty && mounted) {
+        setState(() {
+          _transactions.clear();
+          _transactions.addAll(cloudData);
+        });
+        // Lưu lại local
+        final localData = _transactions.map((t) {
+          final date = t['date'] as DateTime;
+          return '${t['type']}|${t['amount']}|${t['category']}|${t['note'] ?? ''}|${date.millisecondsSinceEpoch}';
+        }).toList();
+        await prefs.setStringList('expense_transactions', localData);
+      }
+    }
+  }
+
+  /// Lưu giao dịch vào SharedPreferences + Firestore
+  Future<void> _saveTransactions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = _transactions.map((t) {
+      final date = t['date'] as DateTime;
+      return '${t['type']}|${t['amount']}|${t['category']}|${t['note'] ?? ''}|${date.millisecondsSinceEpoch}';
+    }).toList();
+    await prefs.setStringList('expense_transactions', data);
+    
+    // Đồng bộ lên Firestore
+    FirestoreService().saveTransactions(_transactions);
+  }
+
   void _showAddTransactionDialog({bool isIncome = false}) {
     final amountController = TextEditingController();
     final noteController = TextEditingController();
@@ -1863,6 +2058,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                           'date': DateTime.now(),
                         });
                       });
+                      _saveTransactions();
                       Navigator.pop(context);
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -2049,6 +2245,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                           setState(() {
                             _transactions.removeAt(_transactions.length - 1 - index);
                           });
+                          _saveTransactions();
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('Đã xóa giao dịch')),
                           );

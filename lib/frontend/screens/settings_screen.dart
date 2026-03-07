@@ -9,6 +9,7 @@ import '../../app/theme/app_colors.dart';
 import '../../app/theme/theme_provider.dart';
 import '../../app/routes/app_routes.dart';
 import '../../services/auth_service.dart';
+import '../../services/firestore_service.dart';
 
 /// Settings Content - dùng trong HomeScreen tab Cài đặt
 class SettingsContent extends StatefulWidget {
@@ -21,17 +22,31 @@ class SettingsContent extends StatefulWidget {
 class _SettingsContentState extends State<SettingsContent> {
   String? _userEmail;
   String? _avatarPath;
+  bool _biometricAvailable = false;
+  bool _biometricEnabled = false;
+  final _authService = AuthService();
   
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    _loadBiometricState();
+  }
+  
+  Future<void> _loadBiometricState() async {
+    final available = await _authService.isBiometricAvailable();
+    final enabled = await _authService.isBiometricEnabled();
+    if (mounted) {
+      setState(() {
+        _biometricAvailable = available;
+        _biometricEnabled = enabled;
+      });
+    }
   }
   
   Future<void> _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
-    final authService = AuthService();
-    final user = authService.currentUser;
+    final user = _authService.currentUser;
     
     setState(() {
       _userEmail = user?.email ?? prefs.getString('user_email');
@@ -88,8 +103,50 @@ class _SettingsContentState extends State<SettingsContent> {
             leading: const Icon(Icons.lock_outline),
             title: const Text('Đổi mật khẩu'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showChangePasswordDialog(context),
+            onTap: () {
+              if (_authService.isEmailPasswordUser) {
+                _showChangePasswordDialog(context);
+              } else {
+                final provider = _authService.currentProvider == 'google.com' ? 'Google' : 'Apple';
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Tài khoản đăng nhập bằng $provider không thể đổi mật khẩu tại đây.\nVui lòng đổi mật khẩu trong tài khoản $provider của bạn.'),
+                    duration: const Duration(seconds: 4),
+                  ),
+                );
+              }
+            },
           ),
+          // Sinh trắc học (Face ID / Vân tay)
+          if (_biometricAvailable)
+            SwitchListTile(
+              secondary: const Icon(Icons.fingerprint),
+              title: const Text('Đăng nhập bằng Face ID / Vân tay'),
+              subtitle: Text(_biometricEnabled ? 'Đang bật' : 'Đang tắt'),
+              value: _biometricEnabled,
+              onChanged: (value) async {
+                await _authService.setBiometricEnabled(value);
+                setState(() => _biometricEnabled = value);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(value
+                          ? '✅ Đã bật đăng nhập sinh trắc học'
+                          : 'Đã tắt đăng nhập sinh trắc học'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
+              },
+            ),
+          if (!_authService.isEmailPasswordUser)
+            ListTile(
+              leading: Icon(Icons.info_outline, color: Colors.grey[400]),
+              title: Text(
+                'Tài khoản đăng nhập bằng ${_authService.currentProvider == "google.com" ? "Google" : "Apple"}',
+                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+              ),
+            ),
           const Divider(),
 
           // ====== THÔNG BÁO ======
@@ -573,6 +630,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _loadProfile() async {
+    // Load local trước cho nhanh
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _hoTen = prefs.getString('profile_name') ?? '';
@@ -583,6 +641,30 @@ class _ProfilePageState extends State<ProfilePage> {
       _canNang = prefs.getString('profile_weight') ?? '';
       _noiSong = prefs.getString('profile_location') ?? '';
     });
+    
+    // Sync từ Firestore nếu local trống
+    if (_hoTen.isEmpty) {
+      final cloud = await FirestoreService().loadProfile();
+      if (cloud != null && mounted) {
+        setState(() {
+          _hoTen = cloud['name'] as String? ?? '';
+          _namSinh = cloud['birthYear'] as String? ?? '';
+          _gioiTinh = cloud['gender'] as String? ?? 'Nam';
+          _soDienThoai = cloud['phone'] as String? ?? '';
+          _chieuCao = cloud['height'] as String? ?? '';
+          _canNang = cloud['weight'] as String? ?? '';
+          _noiSong = cloud['location'] as String? ?? '';
+        });
+        // Lưu local
+        await prefs.setString('profile_name', _hoTen);
+        await prefs.setString('profile_birth_year', _namSinh);
+        await prefs.setString('profile_gender', _gioiTinh);
+        await prefs.setString('profile_phone', _soDienThoai);
+        await prefs.setString('profile_height', _chieuCao);
+        await prefs.setString('profile_weight', _canNang);
+        await prefs.setString('profile_location', _noiSong);
+      }
+    }
   }
 
   @override
@@ -676,6 +758,16 @@ class _ProfilePageState extends State<ProfilePage> {
                 await prefs.setString('profile_height', chieuCaoCtrl.text);
                 await prefs.setString('profile_weight', canNangCtrl.text);
                 await prefs.setString('profile_location', noiSongCtrl.text);
+                // Đồng bộ lên Firestore
+                FirestoreService().saveProfile({
+                  'name': hoTenCtrl.text,
+                  'birthYear': namSinhCtrl.text,
+                  'gender': gioiTinh,
+                  'phone': sdtCtrl.text,
+                  'height': chieuCaoCtrl.text,
+                  'weight': canNangCtrl.text,
+                  'location': noiSongCtrl.text,
+                });
                 setState(() {
                   _hoTen = hoTenCtrl.text;
                   _namSinh = namSinhCtrl.text;

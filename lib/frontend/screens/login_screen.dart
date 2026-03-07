@@ -20,11 +20,29 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _isLoading = false;
   bool _savePassword = false;
+  bool _biometricAvailable = false;
+  bool _biometricEnabled = false;
 
   @override
   void initState() {
     super.initState();
     _loadSavedCredentials();
+    _checkBiometric();
+  }
+
+  Future<void> _checkBiometric() async {
+    final available = await _authService.isBiometricAvailable();
+    final enabled = await _authService.isBiometricEnabled();
+    if (mounted) {
+      setState(() {
+        _biometricAvailable = available;
+        _biometricEnabled = enabled;
+      });
+      // Tự động đăng nhập bằng sinh trắc học nếu đã bật
+      if (available && enabled) {
+        _loginWithBiometric();
+      }
+    }
   }
 
   Future<void> _loadSavedCredentials() async {
@@ -121,26 +139,94 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _forgotPassword() async {
-    final email = _emailController.text.trim();
-    if (email.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Vui lòng nhập email trước'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
-
-    final result = await _authService.sendPasswordResetEmail(email);
+  Future<void> _loginWithBiometric() async {
+    setState(() => _isLoading = true);
+    final result = await _authService.loginWithBiometric();
+    setState(() => _isLoading = false);
 
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(result.message ?? ''),
-        backgroundColor: result.isSuccess ? AppColors.success : AppColors.error,
+    if (result.isSuccess) {
+      Navigator.pushReplacementNamed(context, Routes.home);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.message ?? 'Xác thực thất bại'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _forgotPassword() async {
+    final emailController = TextEditingController(text: _emailController.text.trim());
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Quên mật khẩu'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Nhập email để nhận link đặt lại mật khẩu:'),
+            const SizedBox(height: 4),
+            Text(
+              '(Chỉ áp dụng cho tài khoản đăng ký bằng email và mật khẩu)',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600], fontStyle: FontStyle.italic),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Email',
+                prefixIcon: Icon(Icons.email_outlined),
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Hủy'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final email = emailController.text.trim();
+              if (email.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Vui lòng nhập email'),
+                    backgroundColor: AppColors.warning,
+                  ),
+                );
+                return;
+              }
+              
+              Navigator.pop(ctx);
+              
+              // Hiện loading
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Đang gửi email...')),
+              );
+              
+              final result = await _authService.sendPasswordResetEmail(email);
+              
+              if (!mounted) return;
+              
+              ScaffoldMessenger.of(context).clearSnackBars();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(result.message ?? ''),
+                  backgroundColor: result.isSuccess ? AppColors.success : AppColors.error,
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            },
+            child: const Text('Gửi'),
+          ),
+        ],
       ),
     );
   }
@@ -333,6 +419,31 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ],
               ),
+
+              const SizedBox(height: 32),
+
+              // Biểu tượng sinh trắc học (nếu có và đã bật)
+              if (_biometricAvailable && _biometricEnabled) ...[
+                const SizedBox(height: 8),
+                Center(
+                  child: Column(
+                    children: [
+                      IconButton(
+                        onPressed: _isLoading ? null : _loginWithBiometric,
+                        icon: const Icon(Icons.fingerprint),
+                        iconSize: 56,
+                        color: AppColors.primary,
+                        tooltip: 'Đăng nhập bằng sinh trắc học',
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Đăng nhập bằng Face ID / Vân tay',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
 
               const SizedBox(height: 32),
 

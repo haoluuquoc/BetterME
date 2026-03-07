@@ -1,5 +1,3 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,8 +16,6 @@ class WaterAlarmScreen extends StatefulWidget {
 }
 
 class _WaterAlarmScreenState extends State<WaterAlarmScreen> {
-  static const _platform = MethodChannel('com.betterme.betterme/app');
-  
   @override
   void initState() {
     super.initState();
@@ -122,9 +118,8 @@ class _WaterAlarmScreenState extends State<WaterAlarmScreen> {
     );
   }
   
-  /// Để sau: lên lịch snooze + đóng alarm screen
+  /// Để sau: lên lịch snooze + đóng alarm screen, sau 20s sẽ hiện lại
   void _onSnooze() async {
-    // Block alarm cho đến khi có alarm mới (dùng SharedPreferences)
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('block_alarm_screen', true);
     await prefs.setBool('pending_water_dialog', false);
@@ -132,39 +127,20 @@ class _WaterAlarmScreenState extends State<WaterAlarmScreen> {
     // Lên lịch snooze (Android: 20s, iOS: 60s vì iOS yêu cầu tối thiểu 60s)
     await NotificationService().scheduleSnooze();
     
-    // Hiện notification với thời gian đúng theo platform
-    final snoozeText = Platform.isIOS ? '1 phút' : '20 giây';
-    await NotificationService().showSimpleNotification(
-      title: 'Nhắc nhở uống nước',
-      body: 'Sẽ nhắc lại sau $snoozeText',
-      payload: 'water_reminder',
-    );
-    
-    if (!kIsWeb && Platform.isAndroid) {
-      // Android: đưa app về background để user thấy home/lock screen
-      try {
-        await _platform.invokeMethod('moveToBackground');
-      } catch (e) {
-        SystemNavigator.pop();
-      }
-    } else {
-      // iOS: không thể moveToBackground, đóng alarm screen quay về app
-      // Notification snooze đã được schedule, sẽ hiện lại sau 1 phút
-      if (mounted) {
-        if (Navigator.of(context).canPop()) {
-          Navigator.of(context).pop('snooze');
-        } else {
-          // Từ cold launch → vào home
-          try {
-            final authService = AuthService();
-            if (authService.isLoggedIn) {
-              Navigator.pushReplacementNamed(context, Routes.home);
-            } else {
-              Navigator.pushReplacementNamed(context, Routes.login);
-            }
-          } catch (e) {
-            Navigator.pushReplacementNamed(context, Routes.splash);
+    // Đóng alarm screen, quay về app. Snooze sẽ tự động hiện lại full screen sau.
+    if (mounted) {
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop('snooze');
+      } else {
+        try {
+          final authService = AuthService();
+          if (authService.isLoggedIn) {
+            Navigator.pushReplacementNamed(context, Routes.home);
+          } else {
+            Navigator.pushReplacementNamed(context, Routes.login);
           }
+        } catch (e) {
+          Navigator.pushReplacementNamed(context, Routes.splash);
         }
       }
     }

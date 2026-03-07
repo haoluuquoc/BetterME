@@ -245,7 +245,7 @@ Future<AndroidNotificationDetails> _buildNotificationDetails(String title) async
   const snoozeAction = AndroidNotificationAction(
     'snooze',
     'Để sau',
-    showsUserInterface: true,
+    showsUserInterface: false,
     cancelNotification: true,
   );
   
@@ -291,6 +291,8 @@ Future<void> snoozeAlarmCallback() async {
     await prefs.setBool('pending_water_dialog', true);
     // Reset block flag để alarm screen có thể hiện
     await prefs.setBool('block_alarm_screen', false);
+    // Đánh dấu đây là snooze để hiện đúng label
+    await prefs.setBool('water_snooze_just_fired', true);
     
     // Snooze fire → hiện notification
     final notifications = FlutterLocalNotificationsPlugin();
@@ -325,7 +327,7 @@ Future<void> snoozeAlarmCallback() async {
     const snoozeAction = AndroidNotificationAction(
       'snooze',
       'Để sau',
-      showsUserInterface: true,
+      showsUserInterface: false,
       cancelNotification: true,
     );
     
@@ -774,6 +776,26 @@ class NotificationService {
       return granted ?? false;
     }
     return false;
+  }
+  
+  /// Kiểm tra và yêu cầu quyền đặt alarm chính xác (Android 12+)
+  Future<bool> requestExactAlarmPermission() async {
+    if (kIsWeb || !Platform.isAndroid) return true;
+    
+    final android = _notifications.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return false;
+    
+    final canSchedule = await android.canScheduleExactNotifications();
+    if (canSchedule == true) return true;
+    
+    // Mở cài đặt hệ thống để người dùng cấp quyền
+    await android.requestExactAlarmsPermission();
+    
+    // Kiểm tra lại sau khi người dùng quay lại
+    final granted = await android.canScheduleExactNotifications();
+    debugPrint('🔔 Exact alarm permission: $granted');
+    return granted ?? false;
   }
   
   Future<void> scheduleSnooze() async {

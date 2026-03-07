@@ -65,6 +65,8 @@
 		<string>fetch</string>
 		<string>remote-notification</string>
 	</array>
+	<key>NSFaceIDUsageDescription</key>
+	<string>BetterME sử dụng Face ID để đăng nhập nhanh và bảo mật</string>
 	<key>NSCameraUsageDescription</key>
 	<string>BetterME cần quyền truy cập camera để chụp ảnh đại diện</string>
 	<key>NSPhotoLibraryUsageDescription</key>
