@@ -118,7 +118,7 @@ class _WaterAlarmScreenState extends State<WaterAlarmScreen> {
     );
   }
   
-  /// Để sau: lên lịch snooze + đóng alarm screen, sau 20s sẽ hiện lại
+  /// Để sau: lên lịch snooze + minimize app (đưa xuống background)
   void _onSnooze() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('block_alarm_screen', true);
@@ -127,22 +127,21 @@ class _WaterAlarmScreenState extends State<WaterAlarmScreen> {
     // Lên lịch snooze (Android: 20s, iOS: 60s vì iOS yêu cầu tối thiểu 60s)
     await NotificationService().scheduleSnooze();
     
-    // Đóng alarm screen, quay về app. Snooze sẽ tự động hiện lại full screen sau.
+    // Hiện notification nhỏ báo thời gian snooze
+    await NotificationService().showSimpleNotification(
+      title: 'Nhắc nhở uống nước',
+      body: 'Sẽ nhắc lại sau 20 giây',
+      payload: 'water_reminder',
+    );
+    
+    // Minimize app - đưa xuống background, KHÔNG quay về home
     if (mounted) {
+      // Đóng alarm screen trước
       if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop('snooze');
-      } else {
-        try {
-          final authService = AuthService();
-          if (authService.isLoggedIn) {
-            Navigator.pushReplacementNamed(context, Routes.home);
-          } else {
-            Navigator.pushReplacementNamed(context, Routes.login);
-          }
-        } catch (e) {
-          Navigator.pushReplacementNamed(context, Routes.splash);
-        }
       }
+      // Sau đó minimize app xuống background
+      SystemNavigator.pop();
     }
   }
   
