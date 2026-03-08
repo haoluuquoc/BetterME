@@ -71,6 +71,8 @@
 	<string>BetterME cần quyền truy cập camera để chụp ảnh đại diện</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>BetterME cần quyền truy cập thư viện ảnh để chọn ảnh đại diện</string>
+	<key>NSMotionUsageDescription</key>
+	<string>BetterME cần quyền theo dõi chuyển động để đếm bước chân</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

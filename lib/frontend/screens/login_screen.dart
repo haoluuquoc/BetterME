@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../app/theme/app_colors.dart';
 import '../../app/routes/app_routes.dart';
 import '../../services/auth_service.dart';
+import '../../services/firestore_service.dart';
 
 /// Login Screen - Trang đăng nhập với Firebase Auth
 class LoginScreen extends StatefulWidget {
@@ -22,6 +23,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _savePassword = false;
   bool _biometricAvailable = false;
   bool _biometricEnabled = false;
+  String? _biometricLinkedEmail;
 
   @override
   void initState() {
@@ -33,14 +35,25 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _checkBiometric() async {
     final available = await _authService.isBiometricAvailable();
     final enabled = await _authService.isBiometricEnabled();
+    String? linkedEmail;
+    if (available && enabled) {
+      linkedEmail = await _authService.getBiometricLinkedEmail();
+    }
     if (mounted) {
       setState(() {
         _biometricAvailable = available;
         _biometricEnabled = enabled;
+        _biometricLinkedEmail = linkedEmail;
       });
-      // Tự động đăng nhập bằng sinh trắc học nếu đã bật
+      // Chỉ auto-login nếu KHÔNG phải vừa đăng xuất (cold start)
       if (available && enabled) {
-        _loginWithBiometric();
+        final prefs = await SharedPreferences.getInstance();
+        final justLoggedOut = prefs.getBool('just_logged_out') ?? false;
+        if (!justLoggedOut) {
+          _loginWithBiometric();
+        }
+        // Xóa flag sau khi kiểm tra
+        await prefs.remove('just_logged_out');
       }
     }
   }
@@ -79,8 +92,8 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     if (result.isSuccess) {
-      // Lưu mật khẩu nếu được chọn
       final prefs = await SharedPreferences.getInstance();
+      // Lưu mật khẩu nếu được chọn (chỉ để tự điền form lần sau)
       if (_savePassword) {
         await prefs.setBool('save_password', true);
         await prefs.setString('saved_email', _emailController.text.trim());
@@ -89,6 +102,17 @@ class _LoginScreenState extends State<LoginScreen> {
         await prefs.setBool('save_password', false);
         await prefs.remove('saved_email');
         await prefs.remove('saved_password');
+      }
+      
+      // Luôn lưu credentials cho biometric nếu biometric đã bật (độc lập với lưu mật khẩu)
+      final biometricEnabled = await _authService.isBiometricEnabled();
+      if (biometricEnabled) {
+        await prefs.setString('biometric_saved_email', _emailController.text.trim());
+        await prefs.setString('biometric_saved_password', _passwordController.text);
+        await FirestoreService().saveBiometricCredentials(
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
+        );
       }
       Navigator.pushReplacementNamed(context, Routes.home);
     } else {
@@ -422,24 +446,59 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 32),
 
-              // Biểu tượng sinh trắc học (nếu có và đã bật)
-              if (_biometricAvailable && _biometricEnabled) ...[
+              // Biểu tượng sinh trắc học (nếu thiết bị hỗ trợ)
+              if (_biometricAvailable) ...[
                 const SizedBox(height: 8),
                 Center(
                   child: Column(
                     children: [
-                      IconButton(
-                        onPressed: _isLoading ? null : _loginWithBiometric,
-                        icon: const Icon(Icons.fingerprint),
-                        iconSize: 56,
-                        color: AppColors.primary,
-                        tooltip: 'Đăng nhập bằng sinh trắc học',
+                      GestureDetector(
+                        onTap: _isLoading ? null : _loginWithBiometric,
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(16),
+                            border: _biometricEnabled 
+                                ? Border.all(color: AppColors.primary.withOpacity(0.3), width: 1.5)
+                                : null,
+                          ),
+                          child: Icon(
+                            Icons.face_unlock_rounded,
+                            size: 56,
+                            color: _biometricEnabled ? AppColors.primary : Colors.grey[400],
+                          ),
+                        ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 8),
                       Text(
-                        'Đăng nhập bằng Face ID / Vân tay',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        _biometricEnabled 
+                            ? 'Đăng nhập bằng Face ID / Vân tay'
+                            : 'Face ID / Vân tay (chưa thiết lập)',
+                        style: TextStyle(
+                          fontSize: 12, 
+                          color: _biometricEnabled ? Colors.grey[700] : Colors.grey[500],
+                          fontWeight: _biometricEnabled ? FontWeight.w500 : FontWeight.normal,
+                        ),
                       ),
+                      if (_biometricLinkedEmail != null && _biometricEnabled) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          _biometricLinkedEmail!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                      if (!_biometricEnabled) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'Đăng nhập → Cài đặt → Bật Face ID',
+                          style: TextStyle(fontSize: 10, color: Colors.grey[400]),
+                        ),
+                      ],
                     ],
                   ),
                 ),

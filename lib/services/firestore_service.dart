@@ -96,12 +96,25 @@ class FirestoreService {
         'amount': e['amount'],
       }).toList();
 
-      await doc.collection('water_daily').doc(dateKey).set({
+      // Đọc giá trị cũ của ngày này để tính delta
+      final dayDoc = doc.collection('water_daily').doc(dateKey);
+      final oldSnap = await dayDoc.get();
+      final oldTotalMl = oldSnap.exists ? (oldSnap.data()?['totalMl'] ?? 0) as int : 0;
+      final delta = totalMl - oldTotalMl;
+
+      await dayDoc.set({
         'totalMl': totalMl,
         'goalMl': goalMl,
         'entries': entriesData,
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
+      // Cập nhật tổng lượng nước trên user document
+      if (delta != 0) {
+        await doc.set({
+          'totalWaterMl': FieldValue.increment(delta),
+        }, SetOptions(merge: true));
+      }
     } catch (e) {
       debugPrint('Firestore saveWaterDaily error: $e');
     }
@@ -187,6 +200,261 @@ class FirestoreService {
       debugPrint('Firestore loadTransactions error: $e');
     }
     return [];
+  }
+
+  // ==================== CẬP NHẬT ỨNG DỤNG ====================
+
+  /// Kiểm tra phiên bản mới từ Firestore
+  /// Document: app_config/latest_update
+  /// Fields: version, buildNumber, downloadUrl, notes, code
+  Future<Map<String, dynamic>?> checkForUpdate() async {
+    try {
+      debugPrint('checkForUpdate: reading app_config/latest_update...');
+      final doc = await _db.collection('app_config').doc('latest_update').get();
+      debugPrint('checkForUpdate: doc.exists=${doc.exists}, data=${doc.data()}');
+      if (doc.exists) {
+        return doc.data();
+      }
+    } catch (e) {
+      debugPrint('Firestore checkForUpdate error: $e');
+    }
+    return null;
+  }
+
+  /// Tạo document update mẫu (chạy 1 lần để khởi tạo)
+  Future<void> initUpdateConfig({
+    required String version,
+    required int buildNumber,
+    required String downloadUrl,
+    String notes = '',
+    String code = '',
+  }) async {
+    try {
+      await _db.collection('app_config').doc('latest_update').set({
+        'version': version,
+        'buildNumber': buildNumber,
+        'downloadUrl': downloadUrl,
+        'notes': notes,
+        'code': code,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('Firestore initUpdateConfig error: $e');
+    }
+  }
+
+  // ==================== SỨC KHỎE ====================
+
+  /// Lưu dữ liệu sức khỏe hàng ngày (steps, sleep, weight, height)
+  Future<void> saveHealthDaily({
+    required String dateKey,
+    int? steps,
+    double? sleepHours,
+    double? weightKg,
+    double? heightCm,
+  }) async {
+    final doc = _userDoc;
+    if (doc == null) return;
+    try {
+      final data = <String, dynamic>{
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      if (steps != null) data['steps'] = steps;
+      if (sleepHours != null) data['sleepHours'] = sleepHours;
+      if (weightKg != null) data['weightKg'] = weightKg;
+
+      await doc.collection('health_daily').doc(dateKey).set(
+        data,
+        SetOptions(merge: true),
+      );
+
+      // Lưu chiều cao vào profile (chiều cao không đổi theo ngày)
+      if (heightCm != null) {
+        await doc.set({
+          'profile': {'heightCm': heightCm},
+        }, SetOptions(merge: true));
+      }
+    } catch (e) {
+      debugPrint('Firestore saveHealthDaily error: $e');
+    }
+  }
+
+  /// Đọc dữ liệu sức khỏe theo ngày
+  Future<Map<String, dynamic>?> loadHealthDaily(String dateKey) async {
+    final doc = _userDoc;
+    if (doc == null) return null;
+    try {
+      final snap = await doc.collection('health_daily').doc(dateKey).get();
+      if (snap.exists) return snap.data();
+    } catch (e) {
+      debugPrint('Firestore loadHealthDaily error: $e');
+    }
+    return null;
+  }
+
+  /// Lưu danh sách sinh nhật
+  Future<void> saveBirthdays(List<Map<String, String>> birthdays) async {
+    final doc = _userDoc;
+    if (doc == null) return;
+    try {
+      final data = birthdays.map((b) => {
+        'name': b['name'],
+        'date': b['date'],
+      }).toList();
+      await doc.set({'birthdays': data}, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Firestore saveBirthdays error: $e');
+    }
+  }
+
+  /// Đọc danh sách sinh nhật
+  Future<List<Map<String, String>>> loadBirthdays() async {
+    final doc = _userDoc;
+    if (doc == null) return [];
+    try {
+      final snap = await doc.get();
+      if (snap.exists) {
+        final data = snap.data() as Map<String, dynamic>?;
+        final list = data?['birthdays'] as List<dynamic>?;
+        if (list != null) {
+          return list.map((b) => {
+            'name': (b['name'] as String?) ?? '',
+            'date': (b['date'] as String?) ?? '',
+          }).toList();
+        }
+      }
+    } catch (e) {
+      debugPrint('Firestore loadBirthdays error: $e');
+    }
+    return [];
+  }
+
+  /// Đọc chiều cao từ profile
+  Future<double?> loadHeight() async {
+    final doc = _userDoc;
+    if (doc == null) return null;
+    try {
+      final snap = await doc.get();
+      if (snap.exists) {
+        final data = snap.data() as Map<String, dynamic>?;
+        final profile = data?['profile'] as Map<String, dynamic>?;
+        return (profile?['heightCm'] as num?)?.toDouble();
+      }
+    } catch (e) {
+      debugPrint('Firestore loadHeight error: $e');
+    }
+    return null;
+  }
+
+  // ==================== BIOMETRIC DEVICE REGISTRATION ====================
+
+  /// Đăng ký thiết bị cho đăng nhập sinh trắc học (lưu lên Firestore)
+  Future<void> saveBiometricRegistration({
+    required String email,
+    required String provider,
+  }) async {
+    final doc = _userDoc;
+    if (doc == null) return;
+    try {
+      await doc.set({
+        'biometric': {
+          'enabled': true,
+          'linkedEmail': email,
+          'provider': provider,
+          'enabledAt': FieldValue.serverTimestamp(),
+        },
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Firestore saveBiometricRegistration error: $e');
+    }
+  }
+
+  /// Xóa đăng ký sinh trắc học
+  Future<void> removeBiometricRegistration() async {
+    final doc = _userDoc;
+    if (doc == null) return;
+    try {
+      await doc.update({
+        'biometric': FieldValue.delete(),
+      });
+    } catch (e) {
+      debugPrint('Firestore removeBiometricRegistration error: $e');
+    }
+  }
+
+  /// Đọc thông tin đăng ký sinh trắc học từ Firestore
+  Future<Map<String, dynamic>?> loadBiometricRegistration() async {
+    final doc = _userDoc;
+    if (doc == null) return null;
+    try {
+      final snap = await doc.get();
+      if (snap.exists) {
+        final data = snap.data() as Map<String, dynamic>?;
+        final biometric = data?['biometric'] as Map<String, dynamic>?;
+        if (biometric != null && biometric['enabled'] == true) {
+          return biometric;
+        }
+      }
+    } catch (e) {
+      debugPrint('Firestore loadBiometricRegistration error: $e');
+    }
+    return null;
+  }
+
+  /// Lưu credentials đã mã hóa lên Firestore (để khôi phục sau reinstall)
+  Future<void> saveBiometricCredentials({
+    required String email,
+    required String password,
+  }) async {
+    final doc = _userDoc;
+    if (doc == null) return;
+    try {
+      await doc.set({
+        'biometric': {
+          'savedEmail': email,
+          'savedPassword': password,
+        },
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Firestore saveBiometricCredentials error: $e');
+    }
+  }
+
+  /// Đọc credentials đã lưu từ Firestore
+  Future<Map<String, String>?> loadBiometricCredentials() async {
+    final doc = _userDoc;
+    if (doc == null) return null;
+    try {
+      final snap = await doc.get();
+      if (snap.exists) {
+        final data = snap.data() as Map<String, dynamic>?;
+        final biometric = data?['biometric'] as Map<String, dynamic>?;
+        if (biometric != null) {
+          final email = biometric['savedEmail'] as String?;
+          final password = biometric['savedPassword'] as String?;
+          if (email != null && password != null) {
+            return {'email': email, 'password': password};
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Firestore loadBiometricCredentials error: $e');
+    }
+    return null;
+  }
+
+  /// Xóa credentials khi tắt biometric
+  Future<void> removeBiometricCredentials() async {
+    final doc = _userDoc;
+    if (doc == null) return;
+    try {
+      await doc.update({
+        'biometric.savedEmail': FieldValue.delete(),
+        'biometric.savedPassword': FieldValue.delete(),
+      });
+    } catch (e) {
+      debugPrint('Firestore removeBiometricCredentials error: $e');
+    }
   }
 
   // ==================== HELPER ====================

@@ -7,6 +7,8 @@ import '../../frontend/screens/habits_screen.dart';
 import '../../frontend/screens/statistics_screen.dart';
 import '../../frontend/screens/settings_screen.dart';
 import '../../frontend/screens/water_alarm_screen.dart';
+import '../../frontend/screens/update_alarm_screen.dart';
+import '../../frontend/screens/health_screen.dart';
 
 /// Route names
 class Routes {
@@ -23,6 +25,8 @@ class Routes {
   static const String settings = '/settings';
   static const String profile = '/profile';
   static const String waterAlarm = '/water_alarm';
+  static const String updateAlarm = '/update_alarm';
+  static const String health = '/health';
 }
 
 /// Route generator
@@ -52,6 +56,12 @@ class AppRouter {
       
       case Routes.waterAlarm:
         return MaterialPageRoute(builder: (_) => const WaterAlarmScreen());
+      
+      case Routes.updateAlarm:
+        return MaterialPageRoute(builder: (_) => const UpdateAlarmScreen());
+      
+      case Routes.health:
+        return MaterialPageRoute(builder: (_) => const HealthScreen());
       
       default:
         return MaterialPageRoute(

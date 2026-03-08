@@ -18,6 +18,9 @@ class BetterMEApp extends StatelessWidget {
     if (!kIsWeb && NotificationService.pendingPayload == 'water_alarm_screen') {
       initialRoute = Routes.waterAlarm;
       NotificationService.pendingPayload = null;
+    } else if (!kIsWeb && NotificationService.pendingPayload == 'update_alarm_screen') {
+      initialRoute = Routes.updateAlarm;
+      NotificationService.pendingPayload = null;
     }
 
     return ChangeNotifierProvider(

@@ -3,12 +3,16 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../app/theme/app_colors.dart';
 import '../../app/routes/app_routes.dart';
 import '../../services/notification_service.dart';
 import '../../services/firestore_service.dart';
+import '../../services/health_service.dart';
 import 'water_alarm_screen.dart';
+import 'update_alarm_screen.dart';
 import 'settings_screen.dart';
+import 'health_screen.dart';
 
 /// Home Screen - Màn hình chính
 class HomeScreen extends StatefulWidget {
@@ -22,8 +26,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
   StreamSubscription<String?>? _notificationSubscription;
   StreamSubscription<void>? _alarmSubscription;
+  StreamSubscription<void>? _updateAlarmSubscription;
   bool _isAlarmShowing = false;
   DateTime? _lastAlarmDismissed;
+  final _waterReminderKey = GlobalKey<_WaterReminderScreenState>();
   
   @override
   void initState() {
@@ -31,7 +37,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _setupNotificationListener();
     _setupAlarmListener();
+    _setupUpdateAlarmListener();
     _checkPendingNotification();
+    // Kiểm tra cập nhật khi mở app
+    if (!kIsWeb && Platform.isAndroid) {
+      _checkForAppUpdate();
+    }
   }
   
   @override
@@ -39,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _notificationSubscription?.cancel();
     _alarmSubscription?.cancel();
+    _updateAlarmSubscription?.cancel();
     super.dispose();
   }
   
@@ -88,6 +100,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _showAlarmScreen(isSnooze: wasSnooze);
       }
     });
+  }
+  
+  /// Listener: nhận signal update alarm
+  void _setupUpdateAlarmListener() {
+    if (kIsWeb) return;
+    _updateAlarmSubscription = NotificationService.onUpdateAlarmFired.listen((_) {
+      if (mounted) {
+        _showUpdateAlarmScreen();
+      }
+    });
+  }
+  
+  /// Hiện UpdateAlarmScreen full-screen kiểu báo thức
+  void _showUpdateAlarmScreen() async {
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const UpdateAlarmScreen(),
+      ),
+    );
+    
+    if (result == 'update') {
+      // Chuyển sang tab Settings (index 4 vì thêm tab Sức khỏe)
+      setState(() => _currentIndex = 4);
+    }
   }
   
   /// Hiện WaterAlarmScreen full-screen kiểu báo thức
@@ -154,6 +191,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // Tự tắt reminder
         await NotificationService().stopWaterReminder();
         await prefs.setBool('water_reminder_enabled', false);
+        // Sync toggle trên WaterReminderScreen
+        _waterReminderKey.currentState?._loadReminderSettings();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Đã tắt nhắc nhở uống nước')),
@@ -163,6 +202,195 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
   
+  // ====== AUTO UPDATE CHECK ======
+  int _currentBuildNumber = 1;
+  String _currentVersion = '1.0.0';
+
+  void _checkForAppUpdate() async {
+    // Đọc version thật từ package info
+    try {
+      final info = await PackageInfo.fromPlatform();
+      _currentVersion = info.version;
+      _currentBuildNumber = int.tryParse(info.buildNumber) ?? 1;
+    } catch (_) {}
+
+    // Chỉ check 1 lần mỗi 24h
+    final prefs = await SharedPreferences.getInstance();
+    final lastCheck = prefs.getInt('last_update_check_ms') ?? 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - lastCheck < 86400000) return; // 24h
+    await prefs.setInt('last_update_check_ms', now);
+
+    try {
+      final updateInfo = await FirestoreService().checkForUpdate();
+      if (updateInfo == null) return;
+
+      final serverBuild = updateInfo['buildNumber'] as int? ?? 0;
+      final serverVersion = updateInfo['version'] as String? ?? '';
+      final downloadUrl = updateInfo['downloadUrl'] as String? ?? '';
+      final notes = updateInfo['notes'] as String? ?? '';
+      final requiredCode = updateInfo['code'] as String? ?? '';
+
+      if (serverBuild <= _currentBuildNumber || downloadUrl.isEmpty) return;
+
+      if (!mounted) return;
+      // Hiện dialog cập nhật
+      _showAppUpdateDialog(serverVersion, notes, downloadUrl, requiredCode);
+    } catch (e) {
+      debugPrint('Auto update check error: $e');
+    }
+  }
+
+  void _showAppUpdateDialog(String newVersion, String notes, String downloadUrl, String requiredCode) {
+    final codeController = TextEditingController();
+    final needCode = requiredCode.isNotEmpty;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.system_update, color: Colors.blue, size: 28),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Có phiên bản mới $newVersion')),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Bạn đang dùng: $_currentVersion',
+                style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+              if (notes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(notes, style: const TextStyle(fontSize: 13)),
+                ),
+              ],
+              if (needCode) ...[
+                const SizedBox(height: 14),
+                const Text('Nhập mã cập nhật:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: codeController,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'Nhập mã...',
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  textCapitalization: TextCapitalization.characters,
+                  style: const TextStyle(fontSize: 16, letterSpacing: 2, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              // Lên lịch nhắc nhở cập nhật sau 20 giây (màn hình vàng đen)
+              NotificationService().scheduleUpdateAlarm(
+                version: newVersion,
+                notes: notes,
+                downloadUrl: downloadUrl,
+              );
+            },
+            child: const Text('Để sau'),
+          ),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.download, size: 18),
+            label: const Text('Cập nhật ngay'),
+            onPressed: () {
+              if (needCode) {
+                final entered = codeController.text.trim().toUpperCase();
+                if (entered != requiredCode.toUpperCase()) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Mã không đúng')),
+                  );
+                  return;
+                }
+              }
+              Navigator.pop(ctx);
+              _downloadAndInstallUpdate(downloadUrl);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _downloadAndInstallUpdate(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(width: 20),
+              Expanded(child: Text('Đang tải bản cập nhật...\n${uri.host}')),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final httpClient = HttpClient();
+      final request = await httpClient.getUrl(uri);
+      final response = await request.close();
+
+      if (response.statusCode != 200) {
+        httpClient.close();
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Lỗi tải: HTTP ${response.statusCode}')),
+          );
+        }
+        return;
+      }
+
+      final tempDir = await Directory.systemTemp;
+      final file = File('${tempDir.path}/betterme_update.apk');
+      final sink = file.openWrite();
+      await response.pipe(sink);
+      await sink.close();
+      httpClient.close();
+
+      if (mounted) Navigator.pop(context);
+
+      final installed = await NotificationService().installApk(file.path);
+      if (!installed && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không thể cài đặt. Kiểm tra quyền.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi: $e')),
+        );
+      }
+    }
+  }
+
   void _setupNotificationListener() {
     if (kIsWeb) return;
     
@@ -235,11 +463,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: const [
-          HomeContent(),
-          WaterReminderScreen(),
-          ExpenseScreen(),
-          SettingsContent(),
+        children: [
+          HomeContent(onNavigate: (index) => setState(() => _currentIndex = index)),
+          WaterReminderScreen(key: _waterReminderKey),
+          const ExpenseScreen(),
+          const HealthScreen(),
+          const SettingsContent(),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
@@ -267,6 +496,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             label: 'Chi tiêu',
           ),
           BottomNavigationBarItem(
+            icon: Icon(Icons.favorite_outline),
+            activeIcon: Icon(Icons.favorite),
+            label: 'Sức khỏe',
+          ),
+          BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),
             activeIcon: Icon(Icons.settings),
             label: 'Cài đặt',
@@ -278,8 +512,121 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 }
 
 /// Home Content - Trang chủ tổng quan
-class HomeContent extends StatelessWidget {
-  const HomeContent({super.key});
+class HomeContent extends StatefulWidget {
+  final void Function(int)? onNavigate;
+  const HomeContent({super.key, this.onNavigate});
+
+  @override
+  State<HomeContent> createState() => _HomeContentState();
+}
+
+class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
+  int _waterCurrentMl = 0;
+  int _waterGoalMl = 2000;
+  double _totalIncome = 0;
+  double _totalExpense = 0;
+
+  // Health data
+  int _todaySteps = 0;
+  double? _todaySleep;
+  double? _latestWeight;
+  List<String> _todayBirthdays = [];
+  StreamSubscription<int>? _stepsSub;
+  final _healthService = HealthService();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadData();
+    _initHealth();
+  }
+
+  Future<void> _initHealth() async {
+    await _healthService.init();
+    _todaySteps = _healthService.todaySteps;
+    _stepsSub = _healthService.stepsStream.listen((steps) {
+      if (mounted) setState(() => _todaySteps = steps);
+    });
+    final sleep = await _healthService.getTodaySleep();
+    final weight = await _healthService.getLatestWeight();
+    final bdays = await _healthService.getTodayBirthdays();
+    if (mounted) {
+      setState(() {
+        _todaySleep = sleep;
+        _latestWeight = weight;
+        _todayBirthdays = bdays;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _stepsSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadData();
+    }
+  }
+
+  Future<void> _loadData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    
+    // Water data
+    final todayKey = _todayKey();
+    final lastDate = prefs.getString('water_last_date') ?? '';
+    int currentMl = 0;
+    if (lastDate == todayKey) {
+      currentMl = prefs.getInt('water_current_ml') ?? 0;
+    }
+    final goalMl = prefs.getInt('water_daily_goal_ml') ?? 2000;
+
+    // Expense data - parse transactions
+    final data = prefs.getStringList('expense_transactions') ?? [];
+    double income = 0;
+    double expense = 0;
+    for (final entry in data) {
+      final parts = entry.split('|');
+      if (parts.length >= 5) {
+        final type = parts[0];
+        final amount = double.tryParse(parts[1]) ?? 0.0;
+        if (type == 'income') {
+          income += amount;
+        } else {
+          expense += amount;
+        }
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _waterCurrentMl = currentMl;
+        _waterGoalMl = goalMl;
+        _totalIncome = income;
+        _totalExpense = expense;
+      });
+    }
+  }
+
+  String _todayKey() {
+    final now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  }
+
+  String _formatCurrency(double amount) {
+    if (amount >= 1000000) {
+      return '${(amount / 1000000).toStringAsFixed(1)}tr';
+    } else if (amount >= 1000) {
+      return '${(amount / 1000).toStringAsFixed(0)}k';
+    }
+    return '${amount.toStringAsFixed(0)}đ';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -288,10 +635,15 @@ class HomeContent extends StatelessWidget {
         title: const Text('BetterME'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.notifications_outlined),
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Làm mới dữ liệu',
             onPressed: () {
+              _loadData();
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Thông báo')),
+                const SnackBar(
+                  content: Text('Đã làm mới dữ liệu'),
+                  duration: Duration(seconds: 1),
+                ),
               );
             },
           ),
@@ -304,10 +656,24 @@ class HomeContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildGreetingSection(context),
-              const SizedBox(height: 24),
-              _buildWaterSummaryCard(context),
+              // Birthday banner
+              if (_todayBirthdays.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _buildBirthdayBanner(context),
+              ],
+              const SizedBox(height: 20),
+              // Daily Health Dashboard
+              _buildDailyDashboard(context),
               const SizedBox(height: 16),
-              _buildExpenseSummaryCard(context),
+              GestureDetector(
+                onTap: () => widget.onNavigate?.call(1),
+                child: _buildWaterSummaryCard(context),
+              ),
+              const SizedBox(height: 16),
+              GestureDetector(
+                onTap: () => widget.onNavigate?.call(2),
+                child: _buildExpenseSummaryCard(context),
+              ),
             ],
           ),
         ),
@@ -354,7 +720,181 @@ class HomeContent extends StatelessWidget {
     );
   }
 
+  Widget _buildBirthdayBanner(BuildContext context) {
+    final names = _todayBirthdays.join(', ');
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.pink.shade50, Colors.orange.shade50],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.pink.shade100),
+      ),
+      child: Row(
+        children: [
+          const Text('🎂', style: TextStyle(fontSize: 28)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Hôm nay là sinh nhật $names 🎉',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: Colors.pink.shade700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDailyDashboard(BuildContext context) {
+    final theme = Theme.of(context);
+    final glasses = (_waterCurrentMl / 250).floor();
+    final balance = _totalIncome - _totalExpense;
+
+    return GestureDetector(
+      onTap: () => widget.onNavigate?.call(3), // Sức khỏe tab
+      child: Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurple.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.dashboard,
+                        color: Colors.deepPurple, size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      'Tổng quan hôm nay',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: AppColors.grey),
+                ],
+              ),
+              const SizedBox(height: 16),
+              // 2x2 Grid
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildDashboardItem(
+                      theme,
+                      Icons.directions_walk,
+                      '$_todaySteps',
+                      'Bước chân',
+                      Colors.deepOrange,
+                    ),
+                  ),
+                  Expanded(
+                    child: _buildDashboardItem(
+                      theme,
+                      Icons.water_drop,
+                      '$glasses ly',
+                      'Nước uống',
+                      Colors.blue,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildDashboardItem(
+                      theme,
+                      Icons.bedtime,
+                      _todaySleep != null
+                          ? '${_todaySleep!.toStringAsFixed(1)}h'
+                          : '--',
+                      'Giấc ngủ',
+                      Colors.indigo,
+                    ),
+                  ),
+                  Expanded(
+                    child: _buildDashboardItem(
+                      theme,
+                      Icons.account_balance_wallet,
+                      _formatCurrency(balance < 0 ? -balance : balance),
+                      balance >= 0 ? 'Còn lại' : 'Âm',
+                      balance >= 0 ? Colors.green : Colors.red,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDashboardItem(
+    ThemeData theme,
+    IconData icon,
+    String value,
+    String label,
+    Color color,
+  ) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+              Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppColors.grey,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildWaterSummaryCard(BuildContext context) {
+    final glasses = (_waterCurrentMl / 250).floor();
+    final goalGlasses = (_waterGoalMl / 250).floor();
+    final progress = _waterGoalMl > 0 ? (_waterCurrentMl / _waterGoalMl).clamp(0.0, 1.0) : 0.0;
+    
+    String statusText;
+    if (_waterCurrentMl == 0) {
+      statusText = '$glasses/$goalGlasses ly - Bắt đầu uống nước nào! 💧';
+    } else if (_waterCurrentMl >= _waterGoalMl) {
+      statusText = '$glasses/$goalGlasses ly - Đã đủ mục tiêu! 🎉';
+    } else {
+      final remaining = _waterGoalMl - _waterCurrentMl;
+      statusText = '$glasses/$goalGlasses ly - Còn ${remaining}ml nữa 💧';
+    }
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -388,7 +928,7 @@ class HomeContent extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Mục tiêu: 8 ly / ngày',
+                        'Mục tiêu: ${_waterGoalMl}ml / ngày',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AppColors.grey,
                         ),
@@ -402,16 +942,16 @@ class HomeContent extends StatelessWidget {
             const SizedBox(height: 16),
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: const LinearProgressIndicator(
-                value: 0.0,
+              child: LinearProgressIndicator(
+                value: progress,
                 minHeight: 8,
-                backgroundColor: Color(0xFFE0E0E0),
-                valueColor: AlwaysStoppedAnimation(Colors.blue),
+                backgroundColor: const Color(0xFFE0E0E0),
+                valueColor: const AlwaysStoppedAnimation(Colors.blue),
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              '0/8 ly - Bắt đầu uống nước nào! 💧',
+              statusText,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: AppColors.grey,
               ),
@@ -423,6 +963,8 @@ class HomeContent extends StatelessWidget {
   }
 
   Widget _buildExpenseSummaryCard(BuildContext context) {
+    final balance = _totalIncome - _totalExpense;
+    
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -471,9 +1013,9 @@ class HomeContent extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildExpenseItem(context, 'Thu nhập', '0đ', Colors.green),
-                _buildExpenseItem(context, 'Chi tiêu', '0đ', Colors.red),
-                _buildExpenseItem(context, 'Còn lại', '0đ', Colors.blue),
+                _buildExpenseItem(context, 'Thu nhập', _formatCurrency(_totalIncome), Colors.green),
+                _buildExpenseItem(context, 'Chi tiêu', _formatCurrency(_totalExpense), Colors.red),
+                _buildExpenseItem(context, 'Còn lại', _formatCurrency(balance), Colors.blue),
               ],
             ),
           ],
@@ -677,6 +1219,53 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
         final exactAlarmOk = await NotificationService().requestExactAlarmPermission();
         if (!exactAlarmOk) {
           debugPrint('⚠️ Exact alarm permission denied');
+        }
+        
+        // Kiểm tra quyền hiển thị trên ứng dụng khác
+        final canOverlay = await NotificationService().canDrawOverlays();
+        final batteryOptimized = await NotificationService().isBatteryOptimized();
+        
+        if ((!canOverlay || batteryOptimized) && mounted) {
+          await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Cần cấp thêm quyền'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Để nhắc nhở hiện full màn hình khi khóa màn hình, cần bật:'),
+                  const SizedBox(height: 12),
+                  if (!canOverlay) 
+                    const Text('• Hiển thị trên ứng dụng khác'),
+                  if (batteryOptimized)
+                    const Text('• Tắt tối ưu pin cho BetterME'),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Để sau'),
+                ),
+                if (!canOverlay)
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      NotificationService().openOverlaySettings();
+                    },
+                    child: const Text('Cấp quyền overlay'),
+                  ),
+                if (canOverlay && batteryOptimized)
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      NotificationService().openBatterySettings();
+                    },
+                    child: const Text('Tắt tối ưu pin'),
+                  ),
+              ],
+            ),
+          );
         }
       }
       

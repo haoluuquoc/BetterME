@@ -5,11 +5,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../app/theme/app_colors.dart';
 import '../../app/theme/theme_provider.dart';
 import '../../app/routes/app_routes.dart';
 import '../../services/auth_service.dart';
 import '../../services/firestore_service.dart';
+import '../../services/notification_service.dart';
 
 /// Settings Content - dùng trong HomeScreen tab Cài đặt
 class SettingsContent extends StatefulWidget {
@@ -24,22 +26,41 @@ class _SettingsContentState extends State<SettingsContent> {
   String? _avatarPath;
   bool _biometricAvailable = false;
   bool _biometricEnabled = false;
+  String? _biometricLinkedEmail;
   final _authService = AuthService();
+  
+  // Version info (dynamic from package_info_plus)
+  String _currentVersion = '1.0.0';
+  int _currentBuildNumber = 1;
+  
+  // Update check state
+  bool _hasNewVersion = false;
+  String _newVersionString = '';
+  String _newVersionNotes = '';
+  String _newVersionUrl = '';
+  String _newVersionCode = '';
   
   @override
   void initState() {
     super.initState();
     _loadUserData();
     _loadBiometricState();
+    _loadPackageInfo();
+    _checkForNewVersionSilent();
   }
   
   Future<void> _loadBiometricState() async {
     final available = await _authService.isBiometricAvailable();
     final enabled = await _authService.isBiometricEnabled();
+    String? linkedEmail;
+    if (enabled) {
+      linkedEmail = await _authService.getBiometricLinkedEmail();
+    }
     if (mounted) {
       setState(() {
         _biometricAvailable = available;
         _biometricEnabled = enabled;
+        _biometricLinkedEmail = linkedEmail;
       });
     }
   }
@@ -120,18 +141,32 @@ class _SettingsContentState extends State<SettingsContent> {
           // Sinh trắc học (Face ID / Vân tay)
           if (_biometricAvailable)
             SwitchListTile(
-              secondary: const Icon(Icons.fingerprint),
+              secondary: Icon(
+                Icons.face_unlock_rounded,
+                color: _biometricEnabled ? AppColors.primary : null,
+              ),
               title: const Text('Đăng nhập bằng Face ID / Vân tay'),
-              subtitle: Text(_biometricEnabled ? 'Đang bật' : 'Đang tắt'),
+              subtitle: Text(
+                _biometricEnabled 
+                    ? 'Đang bật${_biometricLinkedEmail != null ? ' • $_biometricLinkedEmail' : ''}'
+                    : 'Đang tắt',
+              ),
               value: _biometricEnabled,
               onChanged: (value) async {
                 await _authService.setBiometricEnabled(value);
-                setState(() => _biometricEnabled = value);
+                String? email;
+                if (value) {
+                  email = await _authService.getBiometricLinkedEmail();
+                }
+                setState(() {
+                  _biometricEnabled = value;
+                  _biometricLinkedEmail = email;
+                });
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(value
-                          ? '✅ Đã bật đăng nhập sinh trắc học'
+                          ? '✅ Đã bật đăng nhập sinh trắc học${email != null ? ' cho $email' : ''}'
                           : 'Đã tắt đăng nhập sinh trắc học'),
                       duration: const Duration(seconds: 2),
                     ),
@@ -169,13 +204,64 @@ class _SettingsContentState extends State<SettingsContent> {
           ListTile(
             leading: const Icon(Icons.info_outline),
             title: const Text('Phiên bản'),
-            trailing: Text('1.0.0', style: TextStyle(color: Colors.grey[500])),
+            trailing: Text(_currentVersion, style: TextStyle(color: Colors.grey[500])),
+            onLongPress: () => _initUpdateConfig(context),
           ),
           ListTile(
             leading: const Icon(Icons.group_outlined),
             title: const Text('Nhà phát triển'),
             trailing: Text('BetterME Team', style: TextStyle(color: Colors.grey[500])),
           ),
+          if (!kIsWeb && Platform.isAndroid)
+            ListTile(
+              leading: Stack(
+                children: [
+                  const Icon(Icons.system_update),
+                  if (_hasNewVersion)
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              title: Text(
+                _hasNewVersion ? 'Có bản cập nhật mới!' : 'Cập nhật ứng dụng',
+                style: _hasNewVersion 
+                    ? const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)
+                    : null,
+              ),
+              subtitle: Text(
+                _hasNewVersion 
+                    ? 'Phiên bản $_newVersionString đã sẵn sàng'
+                    : 'Kiểm tra phiên bản mới',
+              ),
+              trailing: _hasNewVersion
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text('MỚI', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                    )
+                  : const Icon(Icons.chevron_right),
+              onTap: () {
+                if (_hasNewVersion) {
+                  // Đã biết có bản mới → đi thẳng dialog cập nhật
+                  _showNewVersionDialog(context, _newVersionString, _newVersionNotes, _newVersionUrl, _newVersionCode);
+                } else {
+                  _showUpdateOptions(context);
+                }
+              },
+            ),
           const Divider(),
 
           // ====== ĐĂNG XUẤT ======
@@ -192,7 +278,7 @@ class _SettingsContentState extends State<SettingsContent> {
           ),
           const SizedBox(height: 16),
           Center(
-            child: Text('BetterME v1.0.0',
+            child: Text('BetterME v$_currentVersion',
               style: Theme.of(context).textTheme.bodySmall),
           ),
           const SizedBox(height: 24),
@@ -582,6 +668,438 @@ class _SettingsContentState extends State<SettingsContent> {
     Navigator.push(context, MaterialPageRoute(
       builder: (_) => const ProfilePage(),
     ));
+  }
+
+  // ====== DEVELOPER: INIT UPDATE CONFIG ======
+
+  void _initUpdateConfig(BuildContext context) async {
+    // Kiểm tra document đã tồn tại chưa
+    final existing = await FirestoreService().checkForUpdate();
+    if (existing != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ app_config/latest_update đã tồn tại (v${existing['version']}). Không ghi đè.'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Developer: Init Update'),
+        content: Text('Tạo document app_config/latest_update trên Firestore?\n\nPhiên bản: $_currentVersion+$_currentBuildNumber\n\nĐây là chức năng nhà phát triển.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Tạo')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    await FirestoreService().initUpdateConfig(
+      version: _currentVersion,
+      buildNumber: _currentBuildNumber,
+      downloadUrl: '',
+      notes: 'Phiên bản $_currentVersion',
+      code: '',
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✅ Đã tạo app_config/latest_update trên Firestore')),
+      );
+    }
+  }
+
+  // ====== OTA UPDATE ======
+
+  Future<void> _loadPackageInfo() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() {
+          _currentVersion = info.version;
+          _currentBuildNumber = int.tryParse(info.buildNumber) ?? 1;
+        });
+      }
+    } catch (e) {
+      debugPrint('PackageInfo error: $e');
+    }
+  }
+  
+  /// Kiểm tra bản mới âm thầm khi vào Settings
+  void _checkForNewVersionSilent() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    
+    try {
+      final updateInfo = await FirestoreService().checkForUpdate();
+      if (updateInfo == null || !mounted) return;
+      
+      final serverBuild = updateInfo['buildNumber'] as int? ?? 0;
+      final serverVersion = updateInfo['version'] as String? ?? '';
+      final downloadUrl = updateInfo['downloadUrl'] as String? ?? '';
+      final notes = updateInfo['notes'] as String? ?? '';
+      final code = updateInfo['code'] as String? ?? '';
+      
+      if (serverBuild > _currentBuildNumber) {
+        setState(() {
+          _hasNewVersion = true;
+          _newVersionString = serverVersion;
+          _newVersionNotes = notes;
+          _newVersionUrl = downloadUrl;
+          _newVersionCode = code;
+        });
+      }
+    } catch (e) {
+      debugPrint('Silent update check error: $e');
+    }
+  }
+
+  void _showUpdateOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Cập nhật ứng dụng',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text('Phiên bản hiện tại: $_currentVersion',
+              style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+            const SizedBox(height: 20),
+            ListTile(
+              leading: const Icon(Icons.cloud_download, color: Colors.blue),
+              title: const Text('Kiểm tra tự động'),
+              subtitle: const Text('Kiểm tra phiên bản mới trên server'),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              tileColor: Colors.blue.withOpacity(0.05),
+              onTap: () {
+                Navigator.pop(ctx);
+                _checkFirestoreUpdate(context);
+              },
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.link, color: Colors.orange),
+              title: const Text('Nhập link tải'),
+              subtitle: const Text('Dán link APK để tải và cài đặt'),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              tileColor: Colors.orange.withOpacity(0.05),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showDirectUrlDialog(context);
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _checkFirestoreUpdate(BuildContext context) async {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Text('Đang kiểm tra...'),
+          ],
+        ),
+      ),
+    );
+
+    final updateInfo = await FirestoreService().checkForUpdate();
+
+    if (!mounted) return;
+    Navigator.pop(context);
+
+    if (updateInfo == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không thể kiểm tra. Chưa có thông tin cập nhật trên server.')),
+      );
+      return;
+    }
+
+    final serverBuild = updateInfo['buildNumber'] as int? ?? 0;
+    final serverVersion = updateInfo['version'] as String? ?? '';
+    final downloadUrl = updateInfo['downloadUrl'] as String? ?? '';
+    final notes = updateInfo['notes'] as String? ?? '';
+    final requiredCode = updateInfo['code'] as String? ?? '';
+
+    if (serverBuild <= _currentBuildNumber) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Đang dùng phiên bản mới nhất ($_currentVersion)')),
+      );
+      return;
+    }
+
+    if (downloadUrl.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Chưa có link tải. Vui lòng thử lại sau.')),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    _showNewVersionDialog(context, serverVersion, notes, downloadUrl, requiredCode);
+  }
+
+  void _showDirectUrlDialog(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedUrl = prefs.getString('update_apk_url') ?? '';
+    final urlController = TextEditingController(text: savedUrl);
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Nhập link APK'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Dán link file APK vào đây:', style: TextStyle(fontSize: 13)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: urlController,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'http://192.168.x.x:8888/betterme.apk',
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              ),
+              maxLines: 2,
+              style: const TextStyle(fontSize: 13),
+              keyboardType: TextInputType.url,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Link từ Google Drive, máy tính cùng Wi-Fi, hoặc bất kỳ URL nào',
+              style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Hủy'),
+          ),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.download, size: 18),
+            label: const Text('Tải & Cài đặt'),
+            onPressed: () {
+              final url = urlController.text.trim();
+              Navigator.pop(ctx);
+              if (url.isNotEmpty) {
+                prefs.setString('update_apk_url', url);
+                _downloadAndInstallApk(context, url);
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showNewVersionDialog(
+    BuildContext context,
+    String newVersion,
+    String notes,
+    String downloadUrl,
+    String requiredCode,
+  ) {
+    final codeController = TextEditingController();
+    final needCode = requiredCode.isNotEmpty;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: Row(
+              children: [
+                const Icon(Icons.system_update, color: Colors.blue),
+                const SizedBox(width: 8),
+                Text('Phiên bản $newVersion'),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Đang dùng: $_currentVersion',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                  ),
+                  if (notes.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text('Nội dung cập nhật:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 4),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(notes, style: const TextStyle(fontSize: 13)),
+                    ),
+                  ],
+                  if (needCode) ...[
+                    const SizedBox(height: 16),
+                    const Text('Nhập mã cập nhật:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 4),
+                    const Text('(Mã được gửi qua email hoặc nhóm chat)', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: codeController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: 'Nhập mã...',
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                      textCapitalization: TextCapitalization.characters,
+                      style: const TextStyle(fontSize: 16, letterSpacing: 2, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  // Lên lịch nhắc nhở cập nhật sau 20 giây (màn hình vàng đen)
+                  NotificationService().scheduleUpdateAlarm(
+                    version: newVersion,
+                    notes: notes,
+                    downloadUrl: downloadUrl,
+                  );
+                },
+                child: const Text('Để sau'),
+              ),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.download, size: 18),
+                label: const Text('Cập nhật ngay'),
+                onPressed: () {
+                  if (needCode) {
+                    final entered = codeController.text.trim().toUpperCase();
+                    if (entered != requiredCode.toUpperCase()) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('❌ Mã không đúng. Vui lòng kiểm tra lại.')),
+                      );
+                      return;
+                    }
+                  }
+                  Navigator.pop(ctx);
+                  if (downloadUrl.isNotEmpty) {
+                    _downloadAndInstallApk(context, downloadUrl);
+                  } else {
+                    // Chưa có link → mở dialog nhập link thủ công
+                    _showDirectUrlDialog(context);
+                  }
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _downloadAndInstallApk(BuildContext context, String url) async {
+    // Validate URL
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme || !uri.host.isNotEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('URL không hợp lệ')),
+        );
+      }
+      return;
+    }
+
+    // Show progress dialog
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(width: 20),
+              Expanded(child: Text('Đang tải APK...\n${uri.host}')),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final httpClient = HttpClient();
+      final request = await httpClient.getUrl(uri);
+      final response = await request.close();
+
+      if (response.statusCode != 200) {
+        httpClient.close();
+        if (mounted) {
+          Navigator.pop(context); // close progress dialog
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Lỗi tải: HTTP ${response.statusCode}')),
+          );
+        }
+        return;
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/betterme_update.apk');
+      final sink = file.openWrite();
+      await response.pipe(sink);
+      await sink.close();
+      httpClient.close();
+
+      if (mounted) {
+        Navigator.pop(context); // close progress dialog
+      }
+
+      // Install APK
+      final installed = await NotificationService().installApk(file.path);
+      if (!installed && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không thể mở file cài đặt. Kiểm tra quyền.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // close progress dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi: $e')),
+        );
+      }
+    }
   }
 
   void _showLogoutDialog(BuildContext context) {

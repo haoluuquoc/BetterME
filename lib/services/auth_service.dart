@@ -191,6 +191,9 @@ class AuthService {
 
   /// Đăng xuất
   Future<void> signOut() async {
+    // Đánh dấu đã đăng xuất thủ công → không auto biometric login
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('just_logged_out', true);
     await _googleSignIn.signOut();
     await _auth.signOut();
   }
@@ -202,7 +205,7 @@ class AuthService {
     try {
       final canCheck = await _localAuth.canCheckBiometrics;
       final isSupported = await _localAuth.isDeviceSupported();
-      return canCheck && isSupported;
+      return canCheck || isSupported;
     } catch (e) {
       return false;
     }
@@ -217,53 +220,167 @@ class AuthService {
     }
   }
 
-  /// Xác thực bằng sinh trắc học (Face ID / Vân tay)
+  /// Xác thực bằng sinh trắc học (Face ID / Vân tay / PIN)
+  /// Trên iPhone/Samsung/Pixel: quét mặt/vân tay trước, PIN nếu fail
+  /// Trên Vivo/Oppo (face unlock riêng): hiện nhập PIN/pattern
   Future<bool> authenticateWithBiometric() async {
     try {
+      final biometrics = await _localAuth.getAvailableBiometrics();
+      final hasBiometric = biometrics.isNotEmpty;
+      
       return await _localAuth.authenticate(
-        localizedReason: 'Xác thực để đăng nhập BetterME',
-        options: const AuthenticationOptions(
+        localizedReason: hasBiometric 
+            ? 'Quét khuôn mặt hoặc vân tay để đăng nhập BetterME'
+            : 'Nhập mã PIN để đăng nhập BetterME',
+        options: AuthenticationOptions(
           stickyAuth: true,
-          biometricOnly: true,
+          biometricOnly: hasBiometric,
         ),
       );
     } catch (e) {
-      return false;
+      // Fallback nếu biometricOnly gây lỗi
+      try {
+        return await _localAuth.authenticate(
+          localizedReason: 'Nhập mã PIN để đăng nhập BetterME',
+          options: const AuthenticationOptions(
+            stickyAuth: true,
+            biometricOnly: false,
+          ),
+        );
+      } catch (_) {
+        return false;
+      }
     }
   }
 
-  /// Bật/tắt đăng nhập sinh trắc học
+  /// Bật/tắt đăng nhập sinh trắc học + đồng bộ Firestore
   Future<void> setBiometricEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('biometric_enabled', enabled);
+    
+    final firestoreService = FirestoreService();
+    
     if (enabled && _auth.currentUser != null) {
-      // Lưu uid để biết tài khoản nào được phép đăng nhập bằng sinh trắc học
-      await prefs.setString('biometric_uid', _auth.currentUser!.uid);
+      final user = _auth.currentUser!;
+      await prefs.setString('biometric_uid', user.uid);
+      
+      // Lưu đăng ký thiết bị lên Firestore (banking-app style)
+      String provider = 'password';
+      for (final info in user.providerData) {
+        if (info.providerId != 'firebase') {
+          provider = info.providerId;
+          break;
+        }
+      }
+      await firestoreService.saveBiometricRegistration(
+        email: user.email ?? '',
+        provider: provider,
+      );
+      
+      // Lưu credentials lên Firestore để khôi phục sau reinstall
+      final biometricEmail = prefs.getString('biometric_saved_email') ?? prefs.getString('saved_email');
+      final biometricPassword = prefs.getString('biometric_saved_password') ?? prefs.getString('saved_password');
+      if (biometricEmail != null && biometricPassword != null) {
+        await prefs.setString('biometric_saved_email', biometricEmail);
+        await prefs.setString('biometric_saved_password', biometricPassword);
+        await firestoreService.saveBiometricCredentials(
+          email: biometricEmail,
+          password: biometricPassword,
+        );
+      }
     } else {
       await prefs.remove('biometric_uid');
+      await prefs.remove('biometric_saved_email');
+      await prefs.remove('biometric_saved_password');
+      // Xóa đăng ký trên Firestore
+      await firestoreService.removeBiometricRegistration();
+      await firestoreService.removeBiometricCredentials();
     }
   }
 
-  /// Kiểm tra đăng nhập sinh trắc học đã bật chưa
+  /// Kiểm tra đăng nhập sinh trắc học đã bật chưa (local + cloud fallback)
   Future<bool> isBiometricEnabled() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('biometric_enabled') ?? false;
+    final localEnabled = prefs.getBool('biometric_enabled') ?? false;
+    if (localEnabled) return true;
+    
+    // Fallback: kiểm tra Firestore nếu local data bị mất (reinstall)
+    if (_auth.currentUser != null) {
+      final biometric = await FirestoreService().loadBiometricRegistration();
+      if (biometric != null && biometric['enabled'] == true) {
+        // Khôi phục local settings từ Firestore
+        await _restoreBiometricFromCloud();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Lấy email đã liên kết với sinh trắc học
+  Future<String?> getBiometricLinkedEmail() async {
+    // Ưu tiên kiểm tra local
+    final prefs = await SharedPreferences.getInstance();
+    final biometricUid = prefs.getString('biometric_uid');
+    if (biometricUid != null && _auth.currentUser?.uid == biometricUid) {
+      return _auth.currentUser?.email;
+    }
+    
+    // Fallback: kiểm tra Firestore
+    if (_auth.currentUser != null) {
+      final biometric = await FirestoreService().loadBiometricRegistration();
+      if (biometric != null) {
+        return biometric['linkedEmail'] as String?;
+      }
+    }
+    return null;
+  }
+
+  /// Khôi phục biometric settings từ Firestore (sau reinstall)
+  Future<bool> _restoreBiometricFromCloud() async {
+    try {
+      final firestoreService = FirestoreService();
+      final biometric = await firestoreService.loadBiometricRegistration();
+      if (biometric == null || biometric['enabled'] != true) return false;
+      
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('biometric_enabled', true);
+      await prefs.setString('biometric_uid', _auth.currentUser!.uid);
+      
+      // Khôi phục credentials từ Firestore
+      final credentials = await firestoreService.loadBiometricCredentials();
+      if (credentials != null) {
+        await prefs.setString('biometric_saved_email', credentials['email']!);
+        await prefs.setString('biometric_saved_password', credentials['password']!);
+      }
+      
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   /// Đăng nhập bằng sinh trắc học (dùng lại session Firebase trước đó)
   Future<AuthResult> loginWithBiometric() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final biometricUid = prefs.getString('biometric_uid');
+      var biometricUid = prefs.getString('biometric_uid');
+      
+      // Nếu local data bị mất, thử khôi phục từ Firestore
+      if (biometricUid == null && _auth.currentUser != null) {
+        final restored = await _restoreBiometricFromCloud();
+        if (restored) {
+          biometricUid = prefs.getString('biometric_uid');
+        }
+      }
       
       // Kiểm tra có tài khoản đã lưu không
       if (biometricUid == null) {
         return AuthResult.failure(
-          message: 'Chưa thiết lập đăng nhập sinh trắc học. Vui lòng đăng nhập bằng email trước.',
+          message: 'Chưa thiết lập đăng nhập sinh trắc học.\nVào Cài đặt → Bật Face ID / Vân tay sau khi đăng nhập.',
         );
       }
       
-      // Xác thực sinh trắc học
+      // Xác thực sinh trắc học (Face/vân tay/PIN)
       final authenticated = await authenticateWithBiometric();
       if (!authenticated) {
         return AuthResult.failure(message: 'Xác thực sinh trắc học thất bại');
@@ -276,15 +393,28 @@ class AuthService {
         return AuthResult.success(user: currentUser);
       }
       
-      // Nếu không còn session, dùng saved credentials
-      final savedEmail = prefs.getString('saved_email');
-      final savedPassword = prefs.getString('saved_password');
+      // Nếu không còn session, dùng biometric credentials (local)
+      var savedEmail = prefs.getString('biometric_saved_email') ?? prefs.getString('saved_email');
+      var savedPassword = prefs.getString('biometric_saved_password') ?? prefs.getString('saved_password');
+      
+      // Fallback: lấy credentials từ Firestore
+      if (savedEmail == null || savedPassword == null) {
+        final credentials = await FirestoreService().loadBiometricCredentials();
+        if (credentials != null) {
+          savedEmail = credentials['email'];
+          savedPassword = credentials['password'];
+          // Lưu lại local cho biometric
+          if (savedEmail != null) await prefs.setString('biometric_saved_email', savedEmail);
+          if (savedPassword != null) await prefs.setString('biometric_saved_password', savedPassword);
+        }
+      }
+      
       if (savedEmail != null && savedPassword != null) {
         return await loginWithEmail(email: savedEmail, password: savedPassword);
       }
       
       return AuthResult.failure(
-        message: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
+        message: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại bằng email.',
       );
     } catch (e) {
       return AuthResult.failure(message: 'Lỗi đăng nhập sinh trắc học: $e');

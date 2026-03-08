@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -245,7 +246,7 @@ Future<AndroidNotificationDetails> _buildNotificationDetails(String title) async
   const snoozeAction = AndroidNotificationAction(
     'snooze',
     'Để sau',
-    showsUserInterface: false,
+    showsUserInterface: true,
     cancelNotification: true,
   );
   
@@ -327,7 +328,7 @@ Future<void> snoozeAlarmCallback() async {
     const snoozeAction = AndroidNotificationAction(
       'snooze',
       'Để sau',
-      showsUserInterface: false,
+      showsUserInterface: true,
       cancelNotification: true,
     );
     
@@ -441,6 +442,45 @@ Future<void> alarmCallback() async {
   }
 }
 
+// Callback cho update alarm - hiện notification fullscreen nhắc cập nhật
+@pragma('vm:entry-point')
+Future<void> updateAlarmCallback() async {
+  try {
+    WidgetsFlutterBinding.ensureInitialized();
+    
+    final prefs = await SharedPreferences.getInstance();
+    final pending = prefs.getBool('pending_update_alarm') ?? false;
+    if (!pending) return;
+    
+    final version = prefs.getString('pending_update_version') ?? '';
+    
+    final notifications = FlutterLocalNotificationsPlugin();
+    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const initSettings = InitializationSettings(android: androidSettings);
+    await notifications.initialize(initSettings);
+    
+    // Dùng cùng channel đã hoạt động tốt với water alarm
+    final androidDetails = await _buildNotificationDetails('Có bản cập nhật mới!');
+    final details = NotificationDetails(android: androidDetails);
+    
+    await notifications.show(
+      200,
+      'Có bản cập nhật mới!',
+      'Phiên bản $version đã sẵn sàng. Bấm để cập nhật.',
+      details,
+      payload: 'update_alarm_screen',
+    );
+    
+    // Notify main isolate nếu app đang mở
+    final sendPort = IsolateNameServer.lookupPortByName(waterAlarmPortName);
+    if (sendPort != null) {
+      sendPort.send('show_update_alarm');
+    }
+  } catch (e) {
+    debugPrint('updateAlarmCallback error: $e');
+  }
+}
+
 /// Gửi signal đến main isolate. Trả về true nếu app đang mở
 bool _notifyMainIsolate() {
   final sendPort = IsolateNameServer.lookupPortByName(waterAlarmPortName);
@@ -467,6 +507,10 @@ class NotificationService {
   // Stream cho alarm - hiện WaterAlarmScreen khi alarm kích hoạt
   static final StreamController<void> _onAlarmFired = StreamController<void>.broadcast();
   static Stream<void> get onAlarmFired => _onAlarmFired.stream;
+  
+  // Stream cho update alarm - hiện UpdateAlarmScreen
+  static final StreamController<void> _onUpdateAlarmFired = StreamController<void>.broadcast();
+  static Stream<void> get onUpdateAlarmFired => _onUpdateAlarmFired.stream;
   
   static String? pendingPayload;
   
@@ -503,10 +547,12 @@ class NotificationService {
         pendingPayload = 'water_drink_tab';
       } else if (response?.actionId == 'snooze') {
         pendingPayload = 'water_snooze';
+      } else if (response?.payload == 'update_alarm_screen') {
+        pendingPayload = 'update_alarm_screen';
       } else {
         pendingPayload = 'water_alarm_screen';
       }
-      return pendingPayload == 'water_alarm_screen';
+      return pendingPayload == 'water_alarm_screen' || pendingPayload == 'update_alarm_screen';
     }
     return false;
   }
@@ -697,9 +743,15 @@ class NotificationService {
             _instance._notifications.cancel(0);
             _instance.cancelSnooze();
           } else {
-            // Tap notification body (không có actionId) → hiện alarm screen
-            _instance._notifications.cancel(0);
-            _onAlarmFired.add(null);
+            // Tap notification body (không có actionId)
+            if (response.payload == 'update_alarm_screen') {
+              _instance._notifications.cancel(200);
+              _onUpdateAlarmFired.add(null);
+            } else {
+              // Hiện alarm screen uống nước
+              _instance._notifications.cancel(0);
+              _onAlarmFired.add(null);
+            }
           }
         }
       },
@@ -740,20 +792,21 @@ class NotificationService {
       waterAlarmPortName,
     );
     
-    _alarmReceivePort!.listen((_) {
-      // Reset block flag khi có alarm mới
-      blockAlarmUntilNextAlarm = false;
-      
+    _alarmReceivePort!.listen((message) {
       // Chỉ xử lý nếu app đang ở FOREGROUND (resumed)
-      // Nếu app ở background → để notification + fullScreenIntent xử lý
       final lifecycleState = WidgetsBinding.instance.lifecycleState;
       if (lifecycleState == AppLifecycleState.resumed) {
-        // App ở foreground → cancel notification và hiện alarm screen trực tiếp
-        _notifications.cancel(0);
-        _onAlarmFired.add(null);
+        if (message == 'show_update_alarm') {
+          // Update alarm → hiện UpdateAlarmScreen
+          _notifications.cancel(200);
+          _onUpdateAlarmFired.add(null);
+        } else {
+          // Water alarm → hiện WaterAlarmScreen
+          blockAlarmUntilNextAlarm = false;
+          _notifications.cancel(0);
+          _onAlarmFired.add(null);
+        }
       }
-      // Nếu app ở background: không cancel notification
-      // pending_water_dialog đã được set, khi app resume sẽ hiện alarm screen
     });
   }
   
@@ -796,6 +849,82 @@ class NotificationService {
     final granted = await android.canScheduleExactNotifications();
     debugPrint('🔔 Exact alarm permission: $granted');
     return granted ?? false;
+  }
+  
+  static const _channel = MethodChannel('com.betterme.betterme/app');
+  
+  /// Kiểm tra quyền hiển thị trên ứng dụng khác (cần cho full screen alarm khi khóa màn hình)
+  Future<bool> canDrawOverlays() async {
+    if (kIsWeb || !Platform.isAndroid) return true;
+    try {
+      return await _channel.invokeMethod('canDrawOverlays') ?? false;
+    } catch (e) {
+      debugPrint('canDrawOverlays error: $e');
+      return false;
+    }
+  }
+  
+  /// Mở cài đặt quyền hiển thị trên ứng dụng khác
+  Future<void> openOverlaySettings() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('openOverlaySettings');
+    } catch (e) {
+      debugPrint('openOverlaySettings error: $e');
+    }
+  }
+  
+  /// Kiểm tra app có bị tối ưu pin không
+  Future<bool> isBatteryOptimized() async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    try {
+      return await _channel.invokeMethod('isBatteryOptimized') ?? false;
+    } catch (e) {
+      debugPrint('isBatteryOptimized error: $e');
+      return false;
+    }
+  }
+  
+  /// Yêu cầu tắt tối ưu pin cho app
+  Future<void> openBatterySettings() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('openBatterySettings');
+    } catch (e) {
+      debugPrint('openBatterySettings error: $e');
+    }
+  }
+
+  /// Lấy tên hãng thiết bị
+  Future<String> getDeviceManufacturer() async {
+    if (kIsWeb || !Platform.isAndroid) return '';
+    try {
+      return await _channel.invokeMethod('getDeviceManufacturer') ?? '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /// Mở cài đặt tự khởi động (auto-start) - cho Vivo/Xiaomi/Oppo/Huawei
+  Future<bool> openAutoStartSettings() async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    try {
+      return await _channel.invokeMethod('openAutoStartSettings') ?? false;
+    } catch (e) {
+      debugPrint('openAutoStartSettings error: $e');
+      return false;
+    }
+  }
+
+  /// Cài đặt APK (dùng cho OTA update)
+  Future<bool> installApk(String filePath) async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    try {
+      return await _channel.invokeMethod('installApk', {'filePath': filePath}) ?? false;
+    } catch (e) {
+      debugPrint('installApk error: $e');
+      return false;
+    }
   }
   
   Future<void> scheduleSnooze() async {
@@ -1118,5 +1247,41 @@ class NotificationService {
       await AndroidAlarmManager.cancel(99);
       await AndroidAlarmManager.cancel(98);
     }
+  }
+
+  /// Lên lịch nhắc nhở cập nhật sau 20 giây (kiểu alarm vàng đen)
+  Future<void> scheduleUpdateAlarm({
+    required String version,
+    required String notes,
+    required String downloadUrl,
+  }) async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('pending_update_alarm', true);
+    await prefs.setString('pending_update_version', version);
+    await prefs.setString('pending_update_notes', notes);
+    await prefs.setString('pending_update_url', downloadUrl);
+    
+    await AndroidAlarmManager.initialize();
+    await AndroidAlarmManager.oneShot(
+      const Duration(seconds: 20),
+      200, // alarm ID for update reminder
+      updateAlarmCallback,
+      exact: true,
+      wakeup: true,
+      allowWhileIdle: true,
+    );
+    debugPrint('🔔 Update alarm scheduled for 20s');
+  }
+  
+  /// Hủy nhắc nhở cập nhật
+  Future<void> cancelUpdateAlarm() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('pending_update_alarm', false);
+    await _notifications.cancel(200);
+    await AndroidAlarmManager.cancel(200);
   }
 }
