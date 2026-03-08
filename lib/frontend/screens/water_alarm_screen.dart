@@ -136,16 +136,26 @@ class _WaterAlarmScreenState extends State<WaterAlarmScreen> {
       payload: 'water_reminder',
     );
     
-    // Minimize app - đưa xuống background, KHÔNG quay về home
     if (mounted) {
-      // Đóng alarm screen trước
       if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop('snooze');
-      }
-      // Android: minimize app xuống background
-      // iOS: SystemNavigator.pop() không hoạt động, chỉ pop screen
-      if (Platform.isAndroid) {
-        SystemNavigator.pop();
+        // Android: minimize app xuống background
+        if (Platform.isAndroid) {
+          SystemNavigator.pop();
+        }
+      } else {
+        // Root route (launched from notification) → navigate to home
+        // Trên iOS không thể minimize app, nên chuyển về home screen
+        try {
+          final authService = AuthService();
+          if (authService.isLoggedIn) {
+            Navigator.pushReplacementNamed(context, Routes.home);
+          } else {
+            Navigator.pushReplacementNamed(context, Routes.login);
+          }
+        } catch (e) {
+          Navigator.pushReplacementNamed(context, Routes.splash);
+        }
       }
     }
   }

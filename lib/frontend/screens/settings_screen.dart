@@ -12,6 +12,7 @@ import '../../app/routes/app_routes.dart';
 import '../../services/auth_service.dart';
 import '../../services/firestore_service.dart';
 import '../../services/notification_service.dart';
+import '../../services/health_service.dart';
 
 /// Settings Content - dùng trong HomeScreen tab Cài đặt
 class SettingsContent extends StatefulWidget {
@@ -1150,13 +1151,28 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _loadProfile() async {
     // Load local trước cho nhanh
     final prefs = await SharedPreferences.getInstance();
+    final hs = HealthService();
+    
+    String chieuCao = prefs.getString('profile_height') ?? '';
+    String canNang = prefs.getString('profile_weight') ?? '';
+    
+    // Đồng bộ từ HealthService nếu profile_height/profile_weight trống
+    if (chieuCao.isEmpty) {
+      final h = await hs.getHeight();
+      if (h != null) chieuCao = h.toStringAsFixed(0);
+    }
+    if (canNang.isEmpty) {
+      final w = await hs.getLatestWeight();
+      if (w != null) canNang = w.toStringAsFixed(1);
+    }
+    
     setState(() {
       _hoTen = prefs.getString('profile_name') ?? '';
       _namSinh = prefs.getString('profile_birth_year') ?? '';
       _gioiTinh = prefs.getString('profile_gender') ?? 'Nam';
       _soDienThoai = prefs.getString('profile_phone') ?? '';
-      _chieuCao = prefs.getString('profile_height') ?? '';
-      _canNang = prefs.getString('profile_weight') ?? '';
+      _chieuCao = chieuCao;
+      _canNang = canNang;
       _noiSong = prefs.getString('profile_location') ?? '';
     });
     
@@ -1181,6 +1197,11 @@ class _ProfilePageState extends State<ProfilePage> {
         await prefs.setString('profile_height', _chieuCao);
         await prefs.setString('profile_weight', _canNang);
         await prefs.setString('profile_location', _noiSong);
+        // Đồng bộ sang HealthService
+        final hVal = double.tryParse(_chieuCao);
+        final wVal = double.tryParse(_canNang);
+        if (hVal != null && hVal > 0) await hs.saveHeight(hVal);
+        if (wVal != null && wVal > 0) await hs.saveWeight(wVal);
       }
     }
   }
@@ -1276,6 +1297,14 @@ class _ProfilePageState extends State<ProfilePage> {
                 await prefs.setString('profile_height', chieuCaoCtrl.text);
                 await prefs.setString('profile_weight', canNangCtrl.text);
                 await prefs.setString('profile_location', noiSongCtrl.text);
+                
+                // Đồng bộ chiều cao và cân nặng sang HealthService
+                final hs = HealthService();
+                final hVal = double.tryParse(chieuCaoCtrl.text);
+                final wVal = double.tryParse(canNangCtrl.text);
+                if (hVal != null && hVal > 0) await hs.saveHeight(hVal);
+                if (wVal != null && wVal > 0) await hs.saveWeight(wVal);
+                
                 // Đồng bộ lên Firestore
                 FirestoreService().saveProfile({
                   'name': hoTenCtrl.text,

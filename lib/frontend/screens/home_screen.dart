@@ -1121,6 +1121,36 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     _tabController = TabController(length: 3, vsync: this);
     _loadReminderSettings();
     _loadWaterData();
+    _loadUserProfile();
+  }
+
+  /// Load weight/height từ SharedPreferences (đồng bộ từ mọi nguồn)
+  Future<void> _loadUserProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hs = HealthService();
+    
+    // Ưu tiên lấy height từ health service (user_height_cm)
+    double? h = await hs.getHeight();
+    // Fallback sang profile_height
+    if (h == null) {
+      final profileH = prefs.getString('profile_height') ?? '';
+      if (profileH.isNotEmpty) h = double.tryParse(profileH);
+    }
+    
+    // Ưu tiên lấy weight từ health service (weight_history)
+    double? w = await hs.getLatestWeight();
+    // Fallback sang profile_weight
+    if (w == null) {
+      final profileW = prefs.getString('profile_weight') ?? '';
+      if (profileW.isNotEmpty) w = double.tryParse(profileW);
+    }
+    
+    if (mounted) {
+      setState(() {
+        if (w != null) _weight = w;
+        if (h != null) _height = h;
+      });
+    }
   }
 
   Future<void> _loadReminderSettings() async {
@@ -1861,15 +1891,26 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
             child: const Text('Hủy'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               final weight = double.tryParse(weightController.text);
               final height = double.tryParse(heightController.text);
-              if (weight != null && height != null) {
+              if (weight != null && height != null && weight > 20 && weight < 300 && height > 50 && height < 300) {
+                final prefs = await SharedPreferences.getInstance();
+                final hs = HealthService();
+                
+                // Lưu vào health service (user_height_cm + weight_history)
+                await hs.saveHeight(height);
+                await hs.saveWeight(weight);
+                
+                // Đồng bộ sang profile keys
+                await prefs.setString('profile_height', height.toStringAsFixed(0));
+                await prefs.setString('profile_weight', weight.toStringAsFixed(1));
+                
                 setState(() {
                   _weight = weight;
                   _height = height;
                 });
-                Navigator.pop(context);
+                if (mounted) Navigator.pop(context);
               }
             },
             child: const Text('Lưu'),

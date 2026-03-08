@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../app/theme/app_colors.dart';
 import '../../services/health_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'step_history_screen.dart';
 
 /// Màn hình Sức khỏe — bước chân, giấc ngủ, cân nặng, sinh nhật
@@ -813,10 +814,13 @@ class _HealthScreenState extends State<HealthScreen>
             child: const Text('Hủy'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               final kg = double.tryParse(controller.text.trim());
               if (kg != null && kg > 20 && kg < 300) {
                 _healthService.saveWeight(kg);
+                // Đồng bộ sang profile key
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setString('profile_weight', kg.toStringAsFixed(1));
                 setState(() => _latestWeight = kg);
                 _loadAllData();
                 Navigator.pop(ctx);
@@ -854,10 +858,13 @@ class _HealthScreenState extends State<HealthScreen>
             child: const Text('Hủy'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               final cm = double.tryParse(controller.text.trim());
               if (cm != null && cm > 50 && cm < 300) {
                 _healthService.saveHeight(cm);
+                // Đồng bộ sang profile key
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setString('profile_height', cm.toStringAsFixed(0));
                 setState(() => _heightCm = cm);
                 Navigator.pop(ctx);
               }
