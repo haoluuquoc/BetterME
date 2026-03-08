@@ -108,12 +108,7 @@ Future<void> _scheduleSnoozeInBackground() async {
         contentTitle: 'Nhắc nhở uống nước',
       ),
     );
-    const iosSnoozeDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      categoryIdentifier: 'water_reminder',
-    );
+    final iosSnoozeDetails = _buildDarwinDetails(mode);
     final details = NotificationDetails(
       android: snoozeNotifDetails,
       iOS: iosSnoozeDetails,
@@ -141,13 +136,7 @@ Future<void> _scheduleSnoozeInBackground() async {
       // iOS yêu cầu tối thiểu 60 giây
       tz_data.initializeTimeZones();
       final snoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 60));
-      const iosReminderDetails = DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-        interruptionLevel: InterruptionLevel.timeSensitive,
-        categoryIdentifier: 'water_reminder',
-      );
+      final iosReminderDetails = _buildDarwinDetails(mode);
       final reminderDetails = NotificationDetails(iOS: iosReminderDetails);
       await notifications.zonedSchedule(
         98,
@@ -277,6 +266,25 @@ Future<AndroidNotificationDetails> _buildNotificationDetails(String title) async
   );
 }
 
+/// Tạo DarwinNotificationDetails cho iOS theo chế độ âm thanh đã chọn:
+/// sound  → có âm thanh + timeSensitive
+/// both   → giống sound (iOS không tách rung riêng được)
+/// vibrate→ không âm thanh, dựa vào cài đặt rung của hệ thống iPhone
+/// silent → không âm thanh + passive (ít intrusive nhất)
+DarwinNotificationDetails _buildDarwinDetails(String mode) {
+  final bool hasSound = mode == 'sound' || mode == 'both';
+  final interruptionLevel = mode == 'silent'
+      ? InterruptionLevel.passive
+      : InterruptionLevel.timeSensitive;
+  return DarwinNotificationDetails(
+    presentAlert: true,
+    presentBadge: true,
+    presentSound: hasSound,
+    interruptionLevel: interruptionLevel,
+    categoryIdentifier: 'water_reminder',
+  );
+}
+
 // Callback cho snooze alarm
 @pragma('vm:entry-point')
 Future<void> snoozeAlarmCallback() async {
@@ -351,13 +359,7 @@ Future<void> snoozeAlarmCallback() async {
         contentTitle: 'Nhắc lại uống nước',
       ),
     );
-    const iosSnoozeDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      interruptionLevel: InterruptionLevel.timeSensitive,
-      categoryIdentifier: 'water_reminder',
-    );
+    final iosSnoozeDetails = _buildDarwinDetails(mode);
     final details = NotificationDetails(
       android: androidDetails,
       iOS: iosSnoozeDetails,
@@ -414,14 +416,9 @@ Future<void> alarmCallback() async {
       onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
     
+    final mode = prefs.getString('water_notification_mode') ?? 'both';
     final androidDetails = await _buildNotificationDetails('Đã đến giờ uống nước');
-    const iosAlarmDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      interruptionLevel: InterruptionLevel.timeSensitive,
-      categoryIdentifier: 'water_reminder',
-    );
+    final iosAlarmDetails = _buildDarwinDetails(mode);
     final details = NotificationDetails(
       android: androidDetails,
       iOS: iosAlarmDetails,
@@ -627,12 +624,8 @@ class NotificationService {
       } else if (Platform.isIOS) {
         // iOS: hiện notification "sẽ nhắc lại" và lên lịch snooze bằng zonedSchedule
         // iOS yêu cầu tối thiểu 60 giây
-        const iosSnoozeDetails = DarwinNotificationDetails(
-          presentAlert: true,
-          presentBadge: true,
-          presentSound: true,
-          categoryIdentifier: 'water_reminder',
-        );
+        final mode = prefs.getString('water_notification_mode') ?? 'both';
+        final iosSnoozeDetails = _buildDarwinDetails(mode);
         final details = NotificationDetails(iOS: iosSnoozeDetails);
         await _notifications.show(
           0,
@@ -645,13 +638,7 @@ class NotificationService {
         // Lên lịch snooze notification sau 60 giây (iOS minimum)
         tz_data.initializeTimeZones();
         final snoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 60));
-        const iosReminderDetails = DarwinNotificationDetails(
-          presentAlert: true,
-          presentBadge: true,
-          presentSound: true,
-          interruptionLevel: InterruptionLevel.timeSensitive,
-          categoryIdentifier: 'water_reminder',
-        );
+        final iosReminderDetails = _buildDarwinDetails(mode);
         final reminderDetails = NotificationDetails(iOS: iosReminderDetails);
         await _notifications.zonedSchedule(
           98,
@@ -945,14 +932,9 @@ class NotificationService {
       debugPrint('🔔 Android: Snooze scheduled for 20s');
     } else if (Platform.isIOS) {
       // iOS: yêu cầu tối thiểu 60 giây cho zonedSchedule
+      final mode = prefs.getString('water_notification_mode') ?? 'both';
       final snoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 60));
-      const iosDetails = DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-        interruptionLevel: InterruptionLevel.timeSensitive,
-        categoryIdentifier: 'water_reminder',
-      );
+      final iosDetails = _buildDarwinDetails(mode);
       final details = NotificationDetails(iOS: iosDetails);
       await _notifications.zonedSchedule(
         98,
@@ -991,14 +973,10 @@ class NotificationService {
   }) async {
     if (kIsWeb) return;
     
+    final prefs = await SharedPreferences.getInstance();
+    final mode = prefs.getString('water_notification_mode') ?? 'both';
     final androidDetails = await _buildNotificationDetails(title);
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      interruptionLevel: InterruptionLevel.timeSensitive,
-      categoryIdentifier: 'water_reminder',
-    );
+    final iosDetails = _buildDarwinDetails(mode);
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
     await _notifications.show(0, title, body, details, payload: payload);
   }
@@ -1066,12 +1044,7 @@ class NotificationService {
         contentTitle: title,
       ),
     );
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      categoryIdentifier: 'water_reminder',
-    );
+    final iosDetails = _buildDarwinDetails(mode);
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
     await _notifications.show(0, title, body, details, payload: payload);
   }
@@ -1085,14 +1058,10 @@ class NotificationService {
   }) async {
     if (kIsWeb) return;
     
+    final prefs = await SharedPreferences.getInstance();
+    final mode = prefs.getString('water_notification_mode') ?? 'both';
     final androidDetails = await _buildNotificationDetails(title);
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      interruptionLevel: InterruptionLevel.timeSensitive,
-      categoryIdentifier: 'water_reminder',
-    );
+    final iosDetails = _buildDarwinDetails(mode);
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
     
     await _notifications.zonedSchedule(

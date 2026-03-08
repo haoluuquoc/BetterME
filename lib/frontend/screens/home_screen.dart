@@ -2067,7 +2067,9 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                   ),
                   RadioListTile<String>(
                     title: const Text('Rung'),
-                    subtitle: const Text('Chỉ rung, không có âm thanh'),
+                    subtitle: Text(Platform.isIOS
+                        ? 'Không âm thanh (rung theo cài đặt iPhone)'
+                        : 'Chỉ rung, không có âm thanh'),
                     value: 'vibrate',
                     groupValue: _notificationMode,
                     onChanged: (value) async {
