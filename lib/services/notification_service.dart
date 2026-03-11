@@ -820,7 +820,8 @@ class NotificationService {
         badge: true,
         sound: true,
       );
-      return granted ?? false;
+      // On iOS, requestPermissions can return null if already requested/granted.
+      return granted ?? true;
     }
     return false;
   }
