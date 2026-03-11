@@ -46,7 +46,7 @@ class HealthService {
     await _syncFromFirestore();
   }
 
-  /// Đồng bộ height, weight, birthdays từ Firestore nếu local trống
+  /// Đồng bộ TẤT CẢ dữ liệu sức khỏe từ Firestore nếu local trống (sau cài lại app / đổi tài khoản)
   Future<void> _syncFromFirestore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -60,23 +60,62 @@ class HealthService {
         }
       }
 
-      // Sync cân nặng (nếu local trống, lấy từ Firestore ngày gần nhất)
-      if ((prefs.getStringList('weight_history') ?? []).isEmpty) {
-        final todayKey = _todayKey();
-        final data = await fs.loadHealthDaily(todayKey);
-        if (data != null && data['weightKg'] != null) {
-          final kg = (data['weightKg'] as num).toDouble();
-          final history = <String>['$todayKey|${kg.toStringAsFixed(1)}'];
-          await prefs.setStringList('weight_history', history);
-        }
-      }
-
       // Sync sinh nhật
       if ((prefs.getStringList('birthdays') ?? []).isEmpty) {
         final birthdays = await fs.loadBirthdays();
         if (birthdays.isNotEmpty) {
           final list = birthdays.map((b) => '${b['name']}|${b['date']}').toList();
           await prefs.setStringList('birthdays', list);
+        }
+      }
+
+      // Sync lịch sử sức khỏe (steps, sleep, weight) — 30 ngày
+      final needSteps = (prefs.getStringList('steps_history') ?? []).isEmpty;
+      final needSleep = (prefs.getStringList('sleep_history') ?? []).isEmpty;
+      final needWeight = (prefs.getStringList('weight_history') ?? []).isEmpty;
+
+      if (needSteps || needSleep || needWeight) {
+        final history = await fs.loadHealthHistory(30);
+        if (history.isNotEmpty) {
+          final stepsList = <String>[];
+          final sleepList = <String>[];
+          final weightList = <String>[];
+
+          for (final day in history) {
+            final date = day['date'] as String;
+            
+            // Steps
+            if (needSteps && day['steps'] != null) {
+              final steps = (day['steps'] as num).toInt();
+              if (steps > 0) stepsList.add('$date|$steps');
+            }
+            
+            // Sleep
+            if (needSleep && day['sleepHours'] != null) {
+              final hours = (day['sleepHours'] as num).toDouble();
+              if (hours > 0) sleepList.add('$date|${hours.toStringAsFixed(1)}');
+            }
+            
+            // Weight
+            if (needWeight && day['weightKg'] != null) {
+              final kg = (day['weightKg'] as num).toDouble();
+              if (kg > 0) weightList.add('$date|${kg.toStringAsFixed(1)}');
+            }
+          }
+
+          if (stepsList.isNotEmpty) {
+            // Sắp xếp theo ngày tăng dần
+            stepsList.sort();
+            await prefs.setStringList('steps_history', stepsList);
+          }
+          if (sleepList.isNotEmpty) {
+            sleepList.sort();
+            await prefs.setStringList('sleep_history', sleepList);
+          }
+          if (weightList.isNotEmpty) {
+            weightList.sort();
+            await prefs.setStringList('weight_history', weightList);
+          }
         }
       }
     } catch (e) {

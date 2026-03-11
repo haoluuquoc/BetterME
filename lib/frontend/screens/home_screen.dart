@@ -1165,7 +1165,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     }
   }
 
-  /// Load dữ liệu uống nước theo ngày từ SharedPreferences
+  /// Load dữ liệu uống nước theo ngày từ SharedPreferences, sync từ Firestore nếu local trống
   Future<void> _loadWaterData() async {
     final prefs = await SharedPreferences.getInstance();
     final today = _todayKey;
@@ -1186,8 +1186,8 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
       await prefs.remove('water_today_entries');
     }
     
-    // Load dữ liệu hôm nay
-    final currentMl = prefs.getInt('water_current_ml') ?? 0;
+    // Load dữ liệu hôm nay từ local
+    int currentMl = prefs.getInt('water_current_ml') ?? 0;
     final entries = prefs.getStringList('water_today_entries') ?? [];
     
     final List<Map<String, dynamic>> loadedHistory = [];
@@ -1202,14 +1202,68 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
         });
       }
     }
+
+    // Nếu local trống → sync từ Firestore (cài lại app / đổi tài khoản)
+    if (currentMl == 0 && entries.isEmpty) {
+      try {
+        final cloudToday = await FirestoreService().loadWaterDaily(today);
+        if (cloudToday != null) {
+          currentMl = (cloudToday['totalMl'] as num?)?.toInt() ?? 0;
+          final goalMl = (cloudToday['goalMl'] as num?)?.toInt() ?? 0;
+          if (currentMl > 0) {
+            await prefs.setInt('water_current_ml', currentMl);
+            if (goalMl > 0) await prefs.setInt('water_daily_goal_ml', goalMl);
+            await prefs.setString('water_last_date', today);
+            // Load entries từ Firestore
+            final cloudEntries = cloudToday['entries'] as List<dynamic>?;
+            if (cloudEntries != null) {
+              for (final e in cloudEntries) {
+                final ts = (e['timestamp'] as num?)?.toInt() ?? 0;
+                final amount = (e['amount'] as num?)?.toInt() ?? 0;
+                loadedHistory.add({
+                  'id': ts,
+                  'time': DateTime.fromMillisecondsSinceEpoch(ts),
+                  'amount': amount,
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Sync water today from Firestore error: $e');
+      }
+    }
     
     // Load lịch sử 7 ngày trước
     final List<Map<String, dynamic>> weekData = [];
+    bool hasLocalHistory = false;
     for (int i = 1; i <= 7; i++) {
       final date = DateTime.now().subtract(Duration(days: i));
       final key = _dateKey(date);
       final amount = prefs.getInt('water_history_$key') ?? 0;
+      if (amount > 0) hasLocalHistory = true;
       weekData.add({'date': date, 'amount': amount});
+    }
+    
+    // Nếu local history trống → sync từ Firestore
+    if (!hasLocalHistory) {
+      try {
+        final cloudHistory = await FirestoreService().loadWaterHistory(7);
+        if (cloudHistory.isNotEmpty) {
+          weekData.clear();
+          for (final item in cloudHistory) {
+            final date = item['date'] as DateTime;
+            final amount = (item['amount'] as num?)?.toInt() ?? 0;
+            weekData.add({'date': date, 'amount': amount});
+            // Cache lại vào local
+            if (amount > 0) {
+              await prefs.setInt('water_history_${_dateKey(date)}', amount);
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Sync water history from Firestore error: $e');
+      }
     }
     
     setState(() {

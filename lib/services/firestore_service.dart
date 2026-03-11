@@ -292,6 +292,30 @@ class FirestoreService {
     return null;
   }
 
+  /// Đọc lịch sử sức khỏe nhiều ngày (steps, sleep, weight) từ Firestore
+  Future<List<Map<String, dynamic>>> loadHealthHistory(int days) async {
+    final doc = _userDoc;
+    if (doc == null) return [];
+    try {
+      final now = DateTime.now();
+      final results = <Map<String, dynamic>>[];
+      for (int i = 0; i < days; i++) {
+        final date = now.subtract(Duration(days: i));
+        final key = _dateKey(date);
+        final snap = await doc.collection('health_daily').doc(key).get();
+        if (snap.exists) {
+          final data = Map<String, dynamic>.from(snap.data()!);
+          data['date'] = key;
+          results.add(data);
+        }
+      }
+      return results;
+    } catch (e) {
+      debugPrint('Firestore loadHealthHistory error: $e');
+    }
+    return [];
+  }
+
   /// Lưu danh sách sinh nhật
   Future<void> saveBirthdays(List<Map<String, String>> birthdays) async {
     final doc = _userDoc;
