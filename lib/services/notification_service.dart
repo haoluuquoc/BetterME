@@ -244,6 +244,12 @@ Future<AndroidNotificationDetails> _buildNotificationDetails(String title) async
   final channelId = 'water_alarm_v11_$mode';
   final channelName = 'Nhắc nhở uống nước ($mode)';
   
+  // Pattern rung liên tục: [delay, rung, nghỉ, rung, nghỉ, rung, nghỉ, rung, nghỉ, rung]
+  // Tổng ~5 giây rung liên tục
+  final Int64List? vibrationPattern = enableVibration
+      ? Int64List.fromList([0, 500, 200, 500, 200, 500, 200, 500, 200, 500, 200, 500])
+      : null;
+  
   return AndroidNotificationDetails(
     channelId,
     channelName,
@@ -252,6 +258,7 @@ Future<AndroidNotificationDetails> _buildNotificationDetails(String title) async
     priority: Priority.max,
     playSound: playSound,
     enableVibration: enableVibration,
+    vibrationPattern: vibrationPattern,
     fullScreenIntent: useFullScreen,
     category: useFullScreen ? AndroidNotificationCategory.alarm : AndroidNotificationCategory.reminder,
     visibility: NotificationVisibility.public,
@@ -1025,6 +1032,11 @@ class NotificationService {
       showsUserInterface: true,
     );
     
+    // Pattern rung liên tục
+    final Int64List? vibrationPattern = enableVibration
+        ? Int64List.fromList([0, 500, 200, 500, 200, 500, 200, 500, 200, 500, 200, 500])
+        : null;
+    
     final androidDetails = AndroidNotificationDetails(
       'water_snooze_v11_$mode',
       'Nhắc nhở uống nước (để sau)',
@@ -1033,6 +1045,7 @@ class NotificationService {
       priority: Priority.max,
       playSound: playSound,
       enableVibration: enableVibration,
+      vibrationPattern: vibrationPattern,
       fullScreenIntent: false,
       category: AndroidNotificationCategory.reminder,
       visibility: NotificationVisibility.public,

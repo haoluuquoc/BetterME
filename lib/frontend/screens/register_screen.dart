@@ -83,24 +83,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  Future<void> _signInWithApple() async {
-    setState(() => _isLoading = true);
-    final result = await _authService.signInWithApple();
-    setState(() => _isLoading = false);
 
-    if (!mounted) return;
-
-    if (result.isSuccess) {
-      Navigator.pushReplacementNamed(context, Routes.home);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result.message ?? 'Đăng nhập thất bại'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -302,22 +285,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
               const SizedBox(height: 24),
 
-              // Social sign up buttons
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildSocialButton(
-                    icon: Icons.g_mobiledata,
-                    label: 'Google',
-                    onTap: _isLoading ? null : _signInWithGoogle,
-                  ),
-                  const SizedBox(width: 16),
-                  _buildSocialButton(
-                    icon: Icons.apple,
-                    label: 'Apple',
-                    onTap: _isLoading ? null : _signInWithApple,
-                  ),
-                ],
+              // Social sign up button
+              Center(
+                child: _buildSocialButton(
+                  icon: Icons.g_mobiledata,
+                  label: 'Google',
+                  onTap: _isLoading ? null : _signInWithGoogle,
+                ),
               ),
 
               const SizedBox(height: 24),

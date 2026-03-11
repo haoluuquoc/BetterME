@@ -1395,6 +1395,18 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     NotificationService().stopWaterReminder();
   }
 
+  /// Cập nhật chế độ thông báo + re-schedule notifications ngay
+  Future<void> _updateNotificationMode(String mode) async {
+    setState(() => _notificationMode = mode);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('water_notification_mode', mode);
+    
+    // Re-schedule notifications với mode mới
+    if (_reminderEnabled) {
+      await _scheduleBackgroundNotifications();
+    }
+  }
+
   /// Dialog cho người dùng chọn số ml khi bấm "Uống ngay"
   void _showQuickWaterSelectDialog() {
     showModalBottomSheet(
@@ -2126,46 +2138,30 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                     subtitle: const Text('Phát âm thanh khi nhắc nhở'),
                     value: 'sound',
                     groupValue: _notificationMode,
-                    onChanged: (value) async {
-                      setState(() => _notificationMode = value!);
-                      final prefs = await SharedPreferences.getInstance();
-                      await prefs.setString('water_notification_mode', value!);
-                    },
+                    onChanged: (value) => _updateNotificationMode(value!),
                   ),
                   RadioListTile<String>(
                     title: const Text('Rung'),
                     subtitle: Text(Platform.isIOS
                         ? 'Không âm thanh (rung theo cài đặt iPhone)'
-                        : 'Chỉ rung, không có âm thanh'),
+                        : 'Chỉ rung liên tục, không có âm thanh'),
                     value: 'vibrate',
                     groupValue: _notificationMode,
-                    onChanged: (value) async {
-                      setState(() => _notificationMode = value!);
-                      final prefs = await SharedPreferences.getInstance();
-                      await prefs.setString('water_notification_mode', value!);
-                    },
+                    onChanged: (value) => _updateNotificationMode(value!),
                   ),
                   RadioListTile<String>(
                     title: const Text('Chuông + Rung'),
-                    subtitle: const Text('Cả âm thanh và rung'),
+                    subtitle: const Text('Cả âm thanh và rung liên tục'),
                     value: 'both',
                     groupValue: _notificationMode,
-                    onChanged: (value) async {
-                      setState(() => _notificationMode = value!);
-                      final prefs = await SharedPreferences.getInstance();
-                      await prefs.setString('water_notification_mode', value!);
-                    },
+                    onChanged: (value) => _updateNotificationMode(value!),
                   ),
                   RadioListTile<String>(
                     title: const Text('Im lặng'),
                     subtitle: const Text('Chỉ hiện thông báo'),
                     value: 'silent',
                     groupValue: _notificationMode,
-                    onChanged: (value) async {
-                      setState(() => _notificationMode = value!);
-                      final prefs = await SharedPreferences.getInstance();
-                      await prefs.setString('water_notification_mode', value!);
-                    },
+                    onChanged: (value) => _updateNotificationMode(value!),
                   ),
                 ],
               ),

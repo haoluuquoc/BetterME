@@ -144,24 +144,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _signInWithApple() async {
-    setState(() => _isLoading = true);
-    final result = await _authService.signInWithApple();
-    setState(() => _isLoading = false);
 
-    if (!mounted) return;
-
-    if (result.isSuccess) {
-      Navigator.pushReplacementNamed(context, Routes.home);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result.message ?? 'Đăng nhập thất bại'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    }
-  }
 
   Future<void> _loginWithBiometric() async {
     setState(() => _isLoading = true);
@@ -427,21 +410,12 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 24),
 
               // Social login buttons
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildSocialButton(
-                    icon: Icons.g_mobiledata,
-                    label: 'Google',
-                    onTap: _isLoading ? null : _signInWithGoogle,
-                  ),
-                  const SizedBox(width: 16),
-                  _buildSocialButton(
-                    icon: Icons.apple,
-                    label: 'Apple',
-                    onTap: _isLoading ? null : _signInWithApple,
-                  ),
-                ],
+              Center(
+                child: _buildSocialButton(
+                  icon: Icons.g_mobiledata,
+                  label: 'Google',
+                  onTap: _isLoading ? null : _signInWithGoogle,
+                ),
               ),
 
               const SizedBox(height: 32),
