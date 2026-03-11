@@ -119,7 +119,7 @@ class _WaterAlarmScreenState extends State<WaterAlarmScreen> {
     );
   }
   
-  /// Để sau: lên lịch snooze + minimize app (đưa xuống background)
+  /// Để sau: lên lịch snooze 20s + tắt/minimize app (KHÔNG mở app)
   void _onSnooze() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('block_alarm_screen', true);
@@ -136,44 +136,35 @@ class _WaterAlarmScreenState extends State<WaterAlarmScreen> {
       payload: 'water_reminder',
     );
     
-    if (mounted) {
-      if (Navigator.of(context).canPop()) {
-        Navigator.of(context).pop('snooze');
-        // Android: minimize app xuống background
-        if (Platform.isAndroid) {
-          SystemNavigator.pop();
-        }
-      } else {
-        // Root route (launched from notification) → navigate to home
-        // Trên iOS không thể minimize app, nên chuyển về home screen
-        try {
-          final authService = AuthService();
-          if (authService.isLoggedIn) {
-            Navigator.pushReplacementNamed(context, Routes.home);
-          } else {
-            Navigator.pushReplacementNamed(context, Routes.login);
-          }
-        } catch (e) {
-          Navigator.pushReplacementNamed(context, Routes.splash);
-        }
-      }
+    if (!mounted) return;
+    
+    // Luôn tắt/minimize app — KHÔNG navigate vào app
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop('snooze');
     }
+    // Thoát app / đưa xuống background
+    SystemNavigator.pop();
   }
   
-  /// Uống ngay: hủy snooze + vào tab uống nước
+  /// Uống ngay: hủy snooze + vào tab uống nước (tab index 1)
   void _onDrinkNow() async {
-    // Block alarm cho đến khi có alarm mới (dùng SharedPreferences)
+    // Block alarm cho đến khi có alarm mới
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('block_alarm_screen', true);
     await prefs.setBool('pending_water_dialog', false);
     
+    // Lưu flag để MainScreen biết cần mở tab uống nước
+    await prefs.setInt('navigate_to_tab', 1);
+    
     NotificationService().cancelSnooze();
     NotificationService().cancelNotification(0);
+    
+    if (!mounted) return;
     
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop('drink');
     } else {
-      // Từ lock screen → vào app tab uống nước
+      // Từ lock screen / notification launch → vào app tab uống nước
       try {
         final authService = AuthService();
         if (authService.isLoggedIn) {

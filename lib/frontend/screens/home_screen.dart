@@ -39,9 +39,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _setupAlarmListener();
     _setupUpdateAlarmListener();
     _checkPendingNotification();
+    _checkNavigateToTab();
     // Kiểm tra cập nhật khi mở app
     if (!kIsWeb && Platform.isAndroid) {
       _checkForAppUpdate();
+    }
+  }
+  
+  /// Kiểm tra flag navigate_to_tab (từ "Uống ngay" trên alarm screen khi launch từ notification)
+  void _checkNavigateToTab() async {
+    final prefs = await SharedPreferences.getInstance();
+    final tabIndex = prefs.getInt('navigate_to_tab');
+    if (tabIndex != null) {
+      await prefs.remove('navigate_to_tab');
+      if (mounted) {
+        setState(() => _currentIndex = tabIndex);
+      }
     }
   }
   
