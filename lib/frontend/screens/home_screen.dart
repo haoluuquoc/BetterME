@@ -1390,9 +1390,9 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     }
   }
   
-  void _stopBackgroundNotifications() {
+  Future<void> _stopBackgroundNotifications() async {
     if (kIsWeb) return;
-    NotificationService().stopWaterReminder();
+    await NotificationService().stopWaterReminder();
   }
 
   /// Cập nhật chế độ thông báo + re-schedule notifications ngay
@@ -2116,7 +2116,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                     await prefs.setBool('water_reminder_enabled', false);
                   }
                 } else {
-                  _stopBackgroundNotifications();
+                  await _stopBackgroundNotifications();
                 }
               },
             ),
