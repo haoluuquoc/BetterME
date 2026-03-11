@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'firestore_service.dart';
+import 'health_service.dart';
 
 /// Authentication Service - Quản lý đăng nhập/đăng ký với Firebase
 class AuthService {
@@ -189,11 +190,31 @@ class AuthService {
 
   // ==================== SIGN OUT ====================
 
-  /// Đăng xuất
+  /// Đăng xuất — xóa toàn bộ data local của user cũ
   Future<void> signOut() async {
     // Đánh dấu đã đăng xuất thủ công → không auto biometric login
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('just_logged_out', true);
+
+    // Lưu lại các settings cấp app (không thuộc user)
+    final savedColorTheme = prefs.getString('selected_color_theme');
+    final savedThemeMode = prefs.getString('theme_mode');
+
+    // Xóa toàn bộ SharedPreferences (tất cả data user cũ)
+    await prefs.clear();
+
+    // Khôi phục settings cấp app
+    if (savedColorTheme != null) {
+      await prefs.setString('selected_color_theme', savedColorTheme);
+    }
+    if (savedThemeMode != null) {
+      await prefs.setString('theme_mode', savedThemeMode);
+    }
+    await prefs.setBool('just_logged_out', true);
+
+    // Reset HealthService singleton để re-sync Firestore cho user mới
+    HealthService().resetForLogout();
+
     await _googleSignIn.signOut();
     await _auth.signOut();
   }

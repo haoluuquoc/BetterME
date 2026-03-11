@@ -24,6 +24,14 @@ class HealthService {
 
   bool _initialized = false;
 
+  /// Reset state khi đăng xuất — để re-sync Firestore cho user mới
+  void resetForLogout() {
+    _todaySteps = 0;
+    _lastSaveTime = null;
+    _initialized = false; // Cho phép init() chạy lại
+    _stepsController.add(0);
+  }
+
   /// Khởi tạo step counter
   Future<void> init() async {
     if (kIsWeb || _initialized) return;
