@@ -1132,6 +1132,12 @@ class NotificationService {
     final now = DateTime.now();
     // iOS giới hạn 64 pending notifications, dùng tối đa 50 để chừa chỗ cho snooze
     final maxCount = (!kIsWeb && Platform.isIOS) ? 50 : (adjustedInterval.inSeconds < 120 ? 48 : 24);
+    
+    // HỦY CÁC THÔNG BÁO CŨ TRƯỚC KHI LÊN LỊCH MỚI (để mode sound/vibrate mới được áp dụng)
+    for (int i = 1; i <= 100; i++) {
+      await cancelNotification(1000 + i);
+    }
+    
     int scheduled = 0;
     for (int i = 1; i <= maxCount * 2 && scheduled < maxCount; i++) {
       final scheduledTime = now.add(adjustedInterval * i);
@@ -1211,7 +1217,7 @@ class NotificationService {
       return true;
     }
     
-    // Cập nhật checkpoint nếu chưa có
+    // Khởi tạo checkpoint lần đầu nếu chưa có
     if (lastCheckMs == 0) {
       await prefs.setInt('ios_last_alarm_check_ms', now);
     }
