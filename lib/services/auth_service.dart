@@ -190,26 +190,44 @@ class AuthService {
 
   // ==================== SIGN OUT ====================
 
-  /// Đăng xuất — xóa toàn bộ data local của user cũ
+  /// Đăng xuất — xóa DATA local của user cũ (giữ cài đặt đăng nhập, theme, notification)
   Future<void> signOut() async {
-    // Đánh dấu đã đăng xuất thủ công → không auto biometric login
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('just_logged_out', true);
 
-    // Lưu lại các settings cấp app (không thuộc user)
-    final savedColorTheme = prefs.getString('selected_color_theme');
-    final savedThemeMode = prefs.getString('theme_mode');
+    // Xóa CHỈ user-data keys (KHÔNG xóa cài đặt đăng nhập, biometric, theme, notification)
+    final userDataKeys = <String>[
+      // Water data
+      'water_current_ml', 'water_daily_goal_ml', 'water_last_date',
+      'water_today_entries',
+      // Steps data
+      'steps_today', 'steps_date', 'steps_baseline', 'steps_history',
+      // Sleep & Weight & Height
+      'sleep_history', 'weight_history', 'user_height_cm',
+      // Birthdays
+      'birthdays',
+      // Transactions (chi tiêu)
+      'expense_transactions',
+      // Profile
+      'profile_name', 'profile_dob', 'profile_gender', 'profile_phone',
+      'profile_height', 'profile_weight', 'profile_location',
+      'avatar_path',
+      // Alarm state
+      'block_alarm_screen', 'pending_water_dialog',
+    ];
 
-    // Xóa toàn bộ SharedPreferences (tất cả data user cũ)
-    await prefs.clear();
-
-    // Khôi phục settings cấp app
-    if (savedColorTheme != null) {
-      await prefs.setString('selected_color_theme', savedColorTheme);
+    for (final key in userDataKeys) {
+      await prefs.remove(key);
     }
-    if (savedThemeMode != null) {
-      await prefs.setString('theme_mode', savedThemeMode);
+
+    // Xóa water_history_* keys (dynamic keys theo ngày)
+    final allKeys = prefs.getKeys();
+    for (final key in allKeys) {
+      if (key.startsWith('water_history_')) {
+        await prefs.remove(key);
+      }
     }
+
+    // Đánh dấu đã đăng xuất → không auto biometric login
     await prefs.setBool('just_logged_out', true);
 
     // Reset HealthService singleton để re-sync Firestore cho user mới
