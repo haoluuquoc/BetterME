@@ -20,6 +20,8 @@ class HealthService {
   int _todaySteps = 0;
   int get todaySteps => _todaySteps;
 
+  DateTime? _lastSaveTime;
+
   bool _initialized = false;
 
   /// Khởi tạo step counter
@@ -101,7 +103,11 @@ class HealthService {
     final savedDate = prefs.getString('steps_date') ?? '';
 
     if (savedDate != todayKey) {
-      // Ngày mới → reset baseline
+      // Ngày mới → lưu lại steps ngày hôm qua trước khi reset
+      if (savedDate.isNotEmpty && _todaySteps > 0) {
+        await saveTodayStepsToHistory();
+      }
+      // Reset baseline cho ngày mới
       await prefs.setString('steps_date', todayKey);
       await prefs.setInt('steps_baseline', event.steps);
       _todaySteps = 0;
@@ -113,10 +119,23 @@ class HealthService {
 
     await prefs.setInt('steps_today', _todaySteps);
     _stepsController.add(_todaySteps);
+
+    // Lưu lịch sử + sync Firestore (debounce mỗi 30 giây)
+    await _debouncedSave();
   }
 
   void _onStepCountError(dynamic error) {
     debugPrint('Step count error: $error');
+  }
+
+  /// Debounce: chỉ lưu history + Firestore mỗi 30 giây để tránh ghi quá nhiều
+  Future<void> _debouncedSave() async {
+    final now = DateTime.now();
+    if (_lastSaveTime != null && now.difference(_lastSaveTime!).inSeconds < 30) {
+      return;
+    }
+    _lastSaveTime = now;
+    await saveTodayStepsToHistory();
   }
 
   Future<void> _loadTodaySteps() async {

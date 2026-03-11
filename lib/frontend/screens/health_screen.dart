@@ -15,7 +15,7 @@ class HealthScreen extends StatefulWidget {
 }
 
 class _HealthScreenState extends State<HealthScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
   final _healthService = HealthService();
 
@@ -40,6 +40,7 @@ class _HealthScreenState extends State<HealthScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabController = TabController(length: 3, vsync: this);
     _initData();
   }
@@ -81,7 +82,19 @@ class _HealthScreenState extends State<HealthScreen>
   void dispose() {
     _stepsSub?.cancel();
     _tabController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      // Lưu steps khi app chuyển sang background
+      _healthService.saveTodayStepsToHistory();
+    } else if (state == AppLifecycleState.resumed) {
+      // Refresh data khi quay lại
+      _loadAllData();
+    }
   }
 
   @override
