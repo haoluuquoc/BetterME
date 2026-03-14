@@ -26,10 +26,13 @@ jobs:
     - name: Check Flutter version
       run: flutter --version
     
-    - name: Build iOS (No Codesign)
+    - name: Install iOS Pods
       run: |
         cd ios
-        flutter build ios --release --no-codesign
+        pod install --repo-update
+        
+    - name: Build iOS (No Codesign)
+      run: flutter build ios --release --no-codesign
     
     - name: Create IPA
       run: |
