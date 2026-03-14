@@ -224,11 +224,15 @@ class HealthService {
 
   /// Refresh steps từ HealthKit/Health Connect khi app mở lại hoặc bấm nút refresh
   Future<bool> refreshStepsFromHealth({bool requestPermission = true}) async {
-    final steps = await _getStepsFromHealth(requestPermission: requestPermission);
-    if (steps == null) return false;
+    final healthSteps = await _getStepsFromHealth(requestPermission: requestPermission);
+    if (healthSteps == null) return false;
 
     final prefs = await SharedPreferences.getInstance();
     final todayKey = _todayKey();
+    
+    // Ngăn chặn HealthConnect ghi đè thành 0 hoặc số nhỏ hơn nếu Firestore đã có lịch sử lớn hơn (đổi máy/reinstall)
+    final steps = healthSteps > _todaySteps ? healthSteps : _todaySteps;
+
     await prefs.setString('steps_date', todayKey);
     await prefs.setInt('steps_today', steps);
 
