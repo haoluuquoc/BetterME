@@ -558,6 +558,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
   Future<void> _initHealth() async {
     await _healthService.init();
     _todaySteps = _healthService.todaySteps;
+    await _stepsSub?.cancel();
     _stepsSub = _healthService.stepsStream.listen((steps) {
       if (mounted) setState(() => _todaySteps = steps);
     });
@@ -583,6 +584,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _initHealth();
       _loadData();
     }
   }

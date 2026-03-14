@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pedometer/pedometer.dart';
+import 'package:health/health.dart';
 import 'firestore_service.dart';
 
 /// Service quản lý sức khỏe: bước chân, giấc ngủ, cân nặng, sinh nhật
@@ -12,6 +13,11 @@ class HealthService {
   static final HealthService _instance = HealthService._();
   HealthService._();
   factory HealthService() => _instance;
+
+  static const MethodChannel _channel = MethodChannel('com.betterme.betterme/app');
+
+  final Health _health = Health();
+  bool _healthConfigured = false;
 
   StreamSubscription<StepCount>? _stepSubscription;
   final _stepsController = StreamController<int>.broadcast();
@@ -21,6 +27,7 @@ class HealthService {
   int get todaySteps => _todaySteps;
 
   DateTime? _lastSaveTime;
+  int? _lastRawSteps;
 
   bool _initialized = false;
 
@@ -28,6 +35,7 @@ class HealthService {
   void resetForLogout() {
     _todaySteps = 0;
     _lastSaveTime = null;
+    _lastRawSteps = null;
     _initialized = false; // Cho phép init() chạy lại
     _stepsController.add(0);
   }
@@ -35,15 +43,25 @@ class HealthService {
   /// Khởi tạo step counter
   Future<void> init() async {
     if (kIsWeb || _initialized) return;
-    _initialized = true;
     await _loadTodaySteps();
     // Xin quyền ACTIVITY_RECOGNITION trên Android 10+
+    bool canStart = true;
     if (!kIsWeb && Platform.isAndroid) {
-      await _requestActivityRecognition();
+      canStart = await _ensureActivityRecognitionPermission();
+      if (!canStart) {
+        debugPrint('Activity recognition permission not granted; step counter not started.');
+      }
     }
-    _startListening();
+    if (canStart) {
+      _startListening();
+      _initialized = true;
+    } else {
+      _initialized = false;
+    }
     // Sync dữ liệu từ Firestore nếu local trống (sau cài lại app)
     await _syncFromFirestore();
+    // Cố gắng refresh steps từ Health (không prompt quyền nếu chưa cấp)
+    await refreshStepsFromHealth(requestPermission: false);
   }
 
   /// Đồng bộ TẤT CẢ dữ liệu sức khỏe từ Firestore nếu local trống (sau cài lại app / đổi tài khoản)
@@ -126,15 +144,98 @@ class HealthService {
   /// Xin quyền ACTIVITY_RECOGNITION trên Android 10+
   Future<void> _requestActivityRecognition() async {
     try {
-      const channel = MethodChannel('com.betterme.betterme/app');
-      await channel.invokeMethod('requestActivityRecognition');
+      await _channel.invokeMethod('requestActivityRecognition');
     } catch (e) {
       debugPrint('Activity recognition permission request error: $e');
     }
   }
 
+  Future<bool> _isActivityRecognitionGranted() async {
+    try {
+      final granted = await _channel.invokeMethod<bool>('checkActivityRecognition');
+      return granted ?? false;
+    } catch (e) {
+      debugPrint('Activity recognition permission check error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _ensureActivityRecognitionPermission() async {
+    if (!Platform.isAndroid) return true;
+    if (Platform.isAndroid && !await _isActivityRecognitionGranted()) {
+      await _requestActivityRecognition();
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+    return await _isActivityRecognitionGranted();
+  }
+
+  Future<void> _ensureHealthConfigured() async {
+    if (_healthConfigured) return;
+    await _health.configure();
+    _healthConfigured = true;
+  }
+
+  Future<int?> _getStepsFromHealth({bool requestPermission = true}) async {
+    if (kIsWeb) return null;
+    try {
+      await _ensureHealthConfigured();
+      final types = [HealthDataType.STEPS];
+      final permissions = [HealthDataAccess.READ];
+      final hasPerms = await _health.hasPermissions(
+        types,
+        permissions: permissions,
+      );
+      bool granted = hasPerms ?? false;
+      if (!granted && requestPermission) {
+        granted = await _health.requestAuthorization(
+          types,
+          permissions: permissions,
+        );
+      }
+      if (!granted) return null;
+      final now = DateTime.now();
+      final start = DateTime(now.year, now.month, now.day);
+      return await _health.getTotalStepsInInterval(start, now);
+    } catch (e) {
+      debugPrint('Health steps read error: $e');
+      return null;
+    }
+  }
+
+  Future<void> _clearRebaseFlags(SharedPreferences prefs) async {
+    await prefs.setBool('steps_need_rebase', false);
+    await prefs.remove('steps_rebase_target');
+    await prefs.remove('steps_rebase_date');
+  }
+
+  /// Refresh steps từ HealthKit/Health Connect khi app mở lại hoặc bấm nút refresh
+  Future<bool> refreshStepsFromHealth({bool requestPermission = true}) async {
+    final steps = await _getStepsFromHealth(requestPermission: requestPermission);
+    if (steps == null) return false;
+
+    final prefs = await SharedPreferences.getInstance();
+    final todayKey = _todayKey();
+    await prefs.setString('steps_date', todayKey);
+    await prefs.setInt('steps_today', steps);
+
+    if (_lastRawSteps != null) {
+      await prefs.setInt('steps_baseline', _lastRawSteps! - steps);
+      await _clearRebaseFlags(prefs);
+    } else {
+      await prefs.setBool('steps_need_rebase', true);
+      await prefs.setInt('steps_rebase_target', steps);
+      await prefs.setString('steps_rebase_date', todayKey);
+    }
+
+    _todaySteps = steps;
+    _stepsController.add(_todaySteps);
+    await saveTodayStepsToHistory();
+    return true;
+  }
+
   void _startListening() {
     try {
+      _stepSubscription?.cancel();
       _stepSubscription = Pedometer.stepCountStream.listen(
         _onStepCount,
         onError: _onStepCountError,
@@ -148,6 +249,11 @@ class HealthService {
     final prefs = await SharedPreferences.getInstance();
     final todayKey = _todayKey();
     final savedDate = prefs.getString('steps_date') ?? '';
+    _lastRawSteps = event.steps;
+
+    final needRebase = prefs.getBool('steps_need_rebase') ?? false;
+    final rebaseTarget = prefs.getInt('steps_rebase_target');
+    final rebaseDate = prefs.getString('steps_rebase_date');
 
     if (savedDate != todayKey) {
       // Ngày mới → lưu lại steps ngày hôm qua trước khi reset
@@ -158,10 +264,18 @@ class HealthService {
       await prefs.setString('steps_date', todayKey);
       await prefs.setInt('steps_baseline', event.steps);
       _todaySteps = 0;
+      await _clearRebaseFlags(prefs);
     } else {
-      final baseline = prefs.getInt('steps_baseline') ?? event.steps;
-      _todaySteps = event.steps - baseline;
-      if (_todaySteps < 0) _todaySteps = 0;
+      if (needRebase && rebaseTarget != null && rebaseDate == todayKey) {
+        final baseline = event.steps - rebaseTarget;
+        await prefs.setInt('steps_baseline', baseline);
+        _todaySteps = rebaseTarget;
+        await _clearRebaseFlags(prefs);
+      } else {
+        final baseline = prefs.getInt('steps_baseline') ?? event.steps;
+        _todaySteps = event.steps - baseline;
+        if (_todaySteps < 0) _todaySteps = 0;
+      }
     }
 
     await prefs.setInt('steps_today', _todaySteps);
@@ -247,7 +361,10 @@ class HealthService {
     await prefs.setStringList('steps_history', history);
 
     // Sync to Firestore
-    FirestoreService().saveHealthDaily(dateKey: todayKey, steps: _todaySteps);
+    await FirestoreService().saveHealthDaily(
+      dateKey: todayKey,
+      steps: _todaySteps,
+    );
   }
 
   // ===== HEIGHT & BMI =====
@@ -257,7 +374,7 @@ class HealthService {
     await prefs.setDouble('user_height_cm', cm);
 
     // Sync to Firestore
-    FirestoreService().saveHealthDaily(dateKey: _todayKey(), heightCm: cm);
+    await FirestoreService().saveHealthDaily(dateKey: _todayKey(), heightCm: cm);
   }
 
   Future<double?> getHeight() async {
@@ -382,7 +499,7 @@ class HealthService {
     await prefs.setStringList('sleep_history', history);
 
     // Sync to Firestore
-    FirestoreService().saveHealthDaily(dateKey: todayKey, sleepHours: hours);
+    await FirestoreService().saveHealthDaily(dateKey: todayKey, sleepHours: hours);
   }
 
   Future<double?> getTodaySleep() async {
@@ -430,7 +547,7 @@ class HealthService {
     await prefs.setStringList('weight_history', history);
 
     // Sync to Firestore
-    FirestoreService().saveHealthDaily(dateKey: todayKey, weightKg: kg);
+    await FirestoreService().saveHealthDaily(dateKey: todayKey, weightKg: kg);
   }
 
   Future<double?> getLatestWeight() async {

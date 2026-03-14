@@ -37,6 +37,17 @@ class MainActivity : FlutterFragmentActivity() {
                         }
                         result.success(true)
                     }
+                    "checkActivityRecognition" -> {
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                            result.success(true)
+                        } else {
+                            val granted = ContextCompat.checkSelfPermission(
+                                this,
+                                Manifest.permission.ACTIVITY_RECOGNITION
+                            ) == PackageManager.PERMISSION_GRANTED
+                            result.success(granted)
+                        }
+                    }
                     "moveToBackground" -> {
                         moveTaskToBack(true)
                         result.success(null)

@@ -36,6 +36,7 @@ class _HealthScreenState extends State<HealthScreen>
   List<Map<String, dynamic>> _stepHistory = [];
   List<Map<String, dynamic>> _sleepHistory = [];
   List<Map<String, dynamic>> _weightHistory = [];
+  bool _refreshingSteps = false;
 
   @override
   void initState() {
@@ -48,10 +49,30 @@ class _HealthScreenState extends State<HealthScreen>
   Future<void> _initData() async {
     await _healthService.init();
     _todaySteps = _healthService.todaySteps;
+    await _stepsSub?.cancel();
     _stepsSub = _healthService.stepsStream.listen((steps) {
       if (mounted) setState(() => _todaySteps = steps);
     });
+    await _healthService.refreshStepsFromHealth(requestPermission: false);
     await _loadAllData();
+  }
+
+  Future<void> _refreshSteps() async {
+    if (_refreshingSteps) return;
+    setState(() => _refreshingSteps = true);
+    final ok = await _healthService.refreshStepsFromHealth(requestPermission: true);
+    if (mounted) {
+      setState(() {
+        _refreshingSteps = false;
+        _todaySteps = _healthService.todaySteps;
+      });
+      await _loadAllData();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ok ? 'Đã cập nhật bước chân' : 'Chưa có quyền hoặc không đọc được dữ liệu'),
+        ),
+      );
+    }
   }
 
   Future<void> _loadAllData() async {
@@ -92,8 +113,8 @@ class _HealthScreenState extends State<HealthScreen>
       // Lưu steps khi app chuyển sang background
       _healthService.saveTodayStepsToHistory();
     } else if (state == AppLifecycleState.resumed) {
-      // Refresh data khi quay lại
-      _loadAllData();
+      // Re-init để lấy lại permission nếu user vừa cấp trong Settings
+      _initData();
     }
   }
 
@@ -103,6 +124,19 @@ class _HealthScreenState extends State<HealthScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Sức khỏe'),
+        actions: [
+          IconButton(
+            onPressed: _refreshingSteps ? null : _refreshSteps,
+            icon: _refreshingSteps
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
+            tooltip: 'Làm mới bước chân',
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [

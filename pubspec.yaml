@@ -65,6 +65,7 @@ dependencies:
   
   # Health & Step Counter
   pedometer: ^4.0.1
+  health: ^13.3.1
   
   # Image & File
   image_picker: ^1.0.7

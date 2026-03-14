@@ -201,6 +201,7 @@ class AuthService {
       'water_today_entries',
       // Steps data
       'steps_today', 'steps_date', 'steps_baseline', 'steps_history',
+      'steps_need_rebase', 'steps_rebase_target', 'steps_rebase_date',
       // Sleep & Weight & Height
       'sleep_history', 'weight_history', 'user_height_cm',
       // Birthdays
