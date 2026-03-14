@@ -105,7 +105,21 @@ class HealthService {
             // Steps
             if (needSteps && day['steps'] != null) {
               final steps = (day['steps'] as num).toInt();
-              if (steps > 0) stepsList.add('$date|$steps');
+              if (steps > 0) {
+                stepsList.add('$date|$steps');
+                
+                // Tránh reset về 0 nếu dữ liệu là của ngày hôm nay
+                if (date == _todayKey()) {
+                  _todaySteps = steps;
+                  prefs.setInt('steps_today', steps);
+                  prefs.setString('steps_date', date);
+                  
+                  prefs.setBool('steps_need_rebase', true);
+                  prefs.setInt('steps_rebase_target', steps);
+                  prefs.setString('steps_rebase_date', date);
+                  _stepsController.add(steps);
+                }
+              }
             }
             
             // Sleep
