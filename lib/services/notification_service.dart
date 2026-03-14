@@ -685,8 +685,7 @@ class NotificationService {
           actions: [
             DarwinNotificationAction.plain('drink_now', 'Uống ngay',
               options: {DarwinNotificationActionOption.foreground}),
-            DarwinNotificationAction.plain('snooze', 'Để sau',
-              options: {DarwinNotificationActionOption.foreground}),
+            DarwinNotificationAction.plain('snooze', 'Để sau'),
           ],
         ),
       ],
