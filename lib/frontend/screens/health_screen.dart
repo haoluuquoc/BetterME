@@ -60,7 +60,8 @@ class _HealthScreenState extends State<HealthScreen>
   Future<void> _refreshSteps() async {
     if (_refreshingSteps) return;
     setState(() => _refreshingSteps = true);
-    final ok = await _healthService.refreshStepsFromHealth(requestPermission: true);
+    final result =
+        await _healthService.refreshStepsFromHealth(requestPermission: true);
     if (mounted) {
       setState(() {
         _refreshingSteps = false;
@@ -69,7 +70,7 @@ class _HealthScreenState extends State<HealthScreen>
       await _loadAllData();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(ok ? 'Đã cập nhật bước chân' : 'Chưa có quyền hoặc không đọc được dữ liệu'),
+          content: Text(_stepsRefreshMessage(result.status)),
         ),
       );
     }
@@ -1020,9 +1021,22 @@ class _HealthScreenState extends State<HealthScreen>
   String _formatDate(String dateStr) {
     try {
       final date = DateTime.parse(dateStr);
-      return DateFormat('dd/MM').format(date);
+      return DateFormat('dd/MM/yyyy').format(date);
     } catch (_) {
       return dateStr;
+    }
+  }
+
+  String _stepsRefreshMessage(StepsRefreshStatus status) {
+    switch (status) {
+      case StepsRefreshStatus.success:
+        return 'Đã cập nhật bước chân';
+      case StepsRefreshStatus.permissionDenied:
+        return 'Chưa cấp quyền đọc bước chân trong Health/Health Connect';
+      case StepsRefreshStatus.noData:
+        return 'Chưa có dữ liệu bước chân hôm nay';
+      case StepsRefreshStatus.error:
+        return 'Không đọc được dữ liệu bước chân';
     }
   }
 }

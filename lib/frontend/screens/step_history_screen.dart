@@ -267,7 +267,7 @@ class _StepHistoryScreenState extends State<StepHistoryScreen>
     }
     try {
       final date = DateTime.parse(dateStr);
-      return DateFormat('dd/MM').format(date);
+      return DateFormat('dd/MM/yyyy').format(date);
     } catch (_) {
       return dateStr;
     }

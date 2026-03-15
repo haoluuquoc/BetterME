@@ -39,15 +39,15 @@ void main() async {
   }
   
   if (isSnoozeLaunch) {
-    // SNOOZE LAUNCH: xử lý snooze rồi thoát (Android) hoặc hiện app (iOS)
+    // SNOOZE LAUNCH: xử lý snooze rồi thoát, không hiển thị UI
     await NotificationService().handleSnoozeLaunchAndExit();
     if (!kIsWeb && Platform.isAndroid) {
       // Android: thoát app ngay, snooze đã được AlarmManager lên lịch
       SystemNavigator.pop();
       return;
     }
-    // iOS: không thể thoát app → tiếp tục load Firebase + hiện UI bình thường
-    // Snooze notification đã được zonedSchedule lên lịch, sẽ fire đúng giờ
+    // iOS: tránh mở UI khi bấm "Để sau"
+    return;
   }
   
   if (!isSnoozeLaunch && isAlarmLaunch) {

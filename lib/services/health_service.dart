@@ -8,6 +8,30 @@ import 'package:pedometer/pedometer.dart';
 import 'package:health/health.dart';
 import 'firestore_service.dart';
 
+enum StepsRefreshStatus { success, permissionDenied, noData, error }
+
+class StepsRefreshResult {
+  final StepsRefreshStatus status;
+  final int? steps;
+  final String? error;
+
+  const StepsRefreshResult._(this.status, {this.steps, this.error});
+
+  bool get isSuccess => status == StepsRefreshStatus.success;
+
+  factory StepsRefreshResult.success(int steps) =>
+      StepsRefreshResult._(StepsRefreshStatus.success, steps: steps);
+
+  factory StepsRefreshResult.permissionDenied() =>
+      StepsRefreshResult._(StepsRefreshStatus.permissionDenied);
+
+  factory StepsRefreshResult.noData() =>
+      StepsRefreshResult._(StepsRefreshStatus.noData);
+
+  factory StepsRefreshResult.error(String error) =>
+      StepsRefreshResult._(StepsRefreshStatus.error, error: error);
+}
+
 /// Service quản lý sức khỏe: bước chân, giấc ngủ, cân nặng, sinh nhật
 class HealthService {
   static final HealthService _instance = HealthService._();
@@ -87,13 +111,13 @@ class HealthService {
         }
       }
 
-      // Sync lịch sử sức khỏe (steps, sleep, weight) — 30 ngày
+      // Sync lịch sử sức khỏe (steps, sleep, weight) — 365 ngày
       final needSteps = (prefs.getStringList('steps_history') ?? []).isEmpty;
       final needSleep = (prefs.getStringList('sleep_history') ?? []).isEmpty;
       final needWeight = (prefs.getStringList('weight_history') ?? []).isEmpty;
 
       if (needSteps || needSleep || needWeight) {
-        final history = await fs.loadHealthHistory(30);
+        final history = await fs.loadHealthHistory(365);
         if (history.isNotEmpty) {
           final stepsList = <String>[];
           final sleepList = <String>[];
@@ -189,8 +213,9 @@ class HealthService {
     _healthConfigured = true;
   }
 
-  Future<int?> _getStepsFromHealth({bool requestPermission = true}) async {
-    if (kIsWeb) return null;
+  Future<StepsRefreshResult> _getStepsFromHealth(
+      {bool requestPermission = true}) async {
+    if (kIsWeb) return StepsRefreshResult.noData();
     try {
       await _ensureHealthConfigured();
       final types = [HealthDataType.STEPS];
@@ -206,13 +231,15 @@ class HealthService {
           permissions: permissions,
         );
       }
-      if (!granted) return null;
+      if (!granted) return StepsRefreshResult.permissionDenied();
       final now = DateTime.now();
       final start = DateTime(now.year, now.month, now.day);
-      return await _health.getTotalStepsInInterval(start, now);
+      final steps = await _health.getTotalStepsInInterval(start, now);
+      if (steps == null) return StepsRefreshResult.noData();
+      return StepsRefreshResult.success(steps);
     } catch (e) {
       debugPrint('Health steps read error: $e');
-      return null;
+      return StepsRefreshResult.error(e.toString());
     }
   }
 
@@ -223,9 +250,12 @@ class HealthService {
   }
 
   /// Refresh steps từ HealthKit/Health Connect khi app mở lại hoặc bấm nút refresh
-  Future<bool> refreshStepsFromHealth({bool requestPermission = true}) async {
-    final healthSteps = await _getStepsFromHealth(requestPermission: requestPermission);
-    if (healthSteps == null) return false;
+  Future<StepsRefreshResult> refreshStepsFromHealth(
+      {bool requestPermission = true}) async {
+    final readResult =
+        await _getStepsFromHealth(requestPermission: requestPermission);
+    if (!readResult.isSuccess) return readResult;
+    final healthSteps = readResult.steps!;
 
     final prefs = await SharedPreferences.getInstance();
     final todayKey = _todayKey();
@@ -248,7 +278,7 @@ class HealthService {
     _todaySteps = steps;
     _stepsController.add(_todaySteps);
     await saveTodayStepsToHistory();
-    return true;
+    return StepsRefreshResult.success(steps);
   }
 
   void _startListening() {

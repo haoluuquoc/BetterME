@@ -1160,6 +1160,31 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
       if (profileW.isNotEmpty) w = double.tryParse(profileW);
     }
     
+    // Nếu vẫn thiếu thì sync từ Firestore profile
+    if (w == null || h == null) {
+      final cloud = await FirestoreService().loadProfile();
+      if (cloud != null) {
+        final cloudH = cloud['height'] as String? ?? '';
+        final cloudW = cloud['weight'] as String? ?? '';
+        if (h == null && cloudH.isNotEmpty) {
+          h = double.tryParse(cloudH);
+        }
+        if (w == null && cloudW.isNotEmpty) {
+          w = double.tryParse(cloudW);
+        }
+        if (cloudH.isNotEmpty) {
+          await prefs.setString('profile_height', cloudH);
+        }
+        if (cloudW.isNotEmpty) {
+          await prefs.setString('profile_weight', cloudW);
+        }
+        final hVal = h;
+        final wVal = w;
+        if (hVal != null && hVal > 0) await hs.saveHeight(hVal);
+        if (wVal != null && wVal > 0) await hs.saveWeight(wVal);
+      }
+    }
+
     if (mounted) {
       setState(() {
         if (w != null) _weight = w;

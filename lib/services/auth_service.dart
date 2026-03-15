@@ -51,6 +51,7 @@ class AuthService {
         await credential.user!.reload();
       }
 
+      await _handleUserSwitch(credential.user);
       await _saveUserMetaToFirestore();
       return AuthResult.success(user: _auth.currentUser);
     } on FirebaseAuthException catch (e) {
@@ -70,6 +71,7 @@ class AuthService {
         email: email,
         password: password,
       );
+      await _handleUserSwitch(credential.user);
       await _saveUserMetaToFirestore();
       return AuthResult.success(user: credential.user);
     } on FirebaseAuthException catch (e) {
@@ -108,6 +110,7 @@ class AuthService {
       );
 
       final userCredential = await _auth.signInWithCredential(credential);
+      await _handleUserSwitch(userCredential.user);
       await _saveUserMetaToFirestore();
       return AuthResult.success(user: userCredential.user);
     } on FirebaseAuthException catch (e) {
@@ -127,6 +130,7 @@ class AuthService {
       appleProvider.addScope('name');
 
       final userCredential = await _auth.signInWithProvider(appleProvider);
+      await _handleUserSwitch(userCredential.user);
       await _saveUserMetaToFirestore();
       return AuthResult.success(user: userCredential.user);
     } on FirebaseAuthException catch (e) {
@@ -190,11 +194,8 @@ class AuthService {
 
   // ==================== SIGN OUT ====================
 
-  /// Đăng xuất — xóa DATA local của user cũ (giữ cài đặt đăng nhập, theme, notification)
-  Future<void> signOut() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    // Xóa CHỈ user-data keys (KHÔNG xóa cài đặt đăng nhập, biometric, theme, notification)
+  Future<void> _clearLocalUserData(SharedPreferences prefs) async {
+    // Clear ONLY user-scoped data. Keep app settings like login preferences, theme, notifications.
     final userDataKeys = <String>[
       // Water data
       'water_current_ml', 'water_daily_goal_ml', 'water_last_date',
@@ -220,13 +221,29 @@ class AuthService {
       await prefs.remove(key);
     }
 
-    // Xóa water_history_* keys (dynamic keys theo ngày)
+    // Clear dynamic water_history_* keys
     final allKeys = prefs.getKeys();
     for (final key in allKeys) {
       if (key.startsWith('water_history_')) {
         await prefs.remove(key);
       }
     }
+  }
+
+  Future<void> _handleUserSwitch(User? user) async {
+    if (user == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final lastUid = prefs.getString('last_uid');
+    if (lastUid != null && lastUid != user.uid) {
+      await _clearLocalUserData(prefs);
+    }
+    await prefs.setString('last_uid', user.uid);
+  }
+
+  /// Đăng xuất — giữ cache local để user đăng nhập lại không mất dữ liệu.
+  /// Dữ liệu sẽ được xóa khi đăng nhập bằng tài khoản khác.
+  Future<void> signOut() async {
+    final prefs = await SharedPreferences.getInstance();
 
     // Đánh dấu đã đăng xuất → không auto biometric login
     await prefs.setBool('just_logged_out', true);
