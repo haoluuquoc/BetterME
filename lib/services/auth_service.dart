@@ -3,6 +3,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
 import 'firestore_service.dart';
 import 'health_service.dart';
 
@@ -203,6 +204,7 @@ class AuthService {
       // Steps data
       'steps_today', 'steps_date', 'steps_baseline', 'steps_history',
       'steps_need_rebase', 'steps_rebase_target', 'steps_rebase_date',
+      'steps_last_sync_date',
       // Sleep & Weight & Height
       'sleep_history', 'weight_history', 'user_height_cm',
       // Birthdays
@@ -247,6 +249,14 @@ class AuthService {
 
     // Đánh dấu đã đăng xuất → không auto biometric login
     await prefs.setBool('just_logged_out', true);
+
+    // Flush steps to Firestore before signing out (prevents loss when switching accounts)
+    try {
+      await HealthService().saveTodayStepsToHistory();
+      await HealthService().syncLocalStepsToFirestore();
+    } catch (e) {
+      debugPrint('Pre-logout steps sync error: $e');
+    }
 
     // Reset HealthService singleton để re-sync Firestore cho user mới
     HealthService().resetForLogout();

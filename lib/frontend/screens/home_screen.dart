@@ -69,6 +69,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      // Flush steps before app goes to background
+      HealthService().saveTodayStepsToHistory();
+      HealthService().syncLocalStepsToFirestore();
+    }
     if (state == AppLifecycleState.resumed) {
       // Không check nếu vừa dismiss alarm screen trong 2 giây gần đây
       if (_lastAlarmDismissed != null) {
@@ -1334,6 +1339,8 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     if (!_reminderEnabled) return false;
     
     try {
+      await NotificationService().initialize();
+
       // Yêu cầu quyền notification (Android 13+)
       final notifPermission = await NotificationService().requestPermission();
       if (!notifPermission) {

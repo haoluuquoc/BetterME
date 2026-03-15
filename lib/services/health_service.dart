@@ -50,7 +50,7 @@ class HealthService {
   int _todaySteps = 0;
   int get todaySteps => _todaySteps;
 
-  DateTime? _lastSaveTime;
+  int? _lastSavedSteps;
   int? _lastRawSteps;
 
   bool _initialized = false;
@@ -58,7 +58,7 @@ class HealthService {
   /// Reset state khi đăng xuất — để re-sync Firestore cho user mới
   void resetForLogout() {
     _todaySteps = 0;
-    _lastSaveTime = null;
+    _lastSavedSteps = null;
     _lastRawSteps = null;
     _initialized = false; // Cho phép init() chạy lại
     _stepsController.add(0);
@@ -86,8 +86,10 @@ class HealthService {
     await _syncFromFirestore();
     // Đẩy local steps lên Firestore để tránh mất dữ liệu khi đăng xuất/đăng nhập
     await _syncLocalStepsToFirestore();
-    // Cố gắng refresh steps từ Health (không prompt quyền nếu chưa cấp)
-    await refreshStepsFromHealth(requestPermission: false);
+    // Cố gắng refresh steps từ Health (iOS sẽ yêu cầu quyền lần đầu)
+    await refreshStepsFromHealth(
+      requestPermission: !kIsWeb && Platform.isIOS,
+    );
   }
 
   /// Đồng bộ TẤT CẢ dữ liệu sức khỏe từ Firestore nếu local trống (sau cài lại app / đổi tài khoản)
@@ -187,22 +189,43 @@ class HealthService {
       final history = prefs.getStringList('steps_history') ?? [];
       if (history.isEmpty) return;
 
+      final todayKey = _todayKey();
+      final lastSyncedKey = prefs.getString('steps_last_sync_date');
+      String? newestSyncedKey;
+
       final start = history.length > maxDays ? history.length - maxDays : 0;
       for (var i = start; i < history.length; i++) {
         final parts = history[i].split('|');
         if (parts.length != 2) continue;
         final dateKey = parts[0];
         final steps = int.tryParse(parts[1]) ?? 0;
+        if (lastSyncedKey != null &&
+            dateKey.compareTo(lastSyncedKey) <= 0 &&
+            dateKey != todayKey) {
+          continue;
+        }
         if (steps > 0) {
           await FirestoreService().saveHealthDaily(
             dateKey: dateKey,
             steps: steps,
           );
+          if (newestSyncedKey == null ||
+              dateKey.compareTo(newestSyncedKey) > 0) {
+            newestSyncedKey = dateKey;
+          }
         }
+      }
+      if (newestSyncedKey != null) {
+        await prefs.setString('steps_last_sync_date', newestSyncedKey);
       }
     } catch (e) {
       debugPrint('Sync local steps to Firestore error: $e');
     }
+  }
+
+  /// Public wrapper to sync local steps to Firestore (e.g. before logout)
+  Future<void> syncLocalStepsToFirestore({int maxDays = 365}) async {
+    await _syncLocalStepsToFirestore(maxDays: maxDays);
   }
 
   /// Xin quyền ACTIVITY_RECOGNITION trên Android 10+
@@ -338,6 +361,7 @@ class HealthService {
       await prefs.setString('steps_date', todayKey);
       await prefs.setInt('steps_baseline', event.steps);
       _todaySteps = 0;
+      _lastSavedSteps = null;
       await _clearRebaseFlags(prefs);
     } else {
       if (needRebase && rebaseTarget != null && rebaseDate == todayKey) {
@@ -355,7 +379,7 @@ class HealthService {
     await prefs.setInt('steps_today', _todaySteps);
     _stepsController.add(_todaySteps);
 
-    // Lưu lịch sử + sync Firestore (debounce mỗi 30 giây)
+    // Lưu lịch sử + sync Firestore khi steps thay đổi
     await _debouncedSave();
   }
 
@@ -363,13 +387,11 @@ class HealthService {
     debugPrint('Step count error: $error');
   }
 
-  /// Debounce: chỉ lưu history + Firestore mỗi 30 giây để tránh ghi quá nhiều
+  /// Lưu history + Firestore khi steps thay đổi
   Future<void> _debouncedSave() async {
-    final now = DateTime.now();
-    if (_lastSaveTime != null && now.difference(_lastSaveTime!).inSeconds < 30) {
+    if (_lastSavedSteps != null && _todaySteps == _lastSavedSteps) {
       return;
     }
-    _lastSaveTime = now;
     await saveTodayStepsToHistory();
   }
 
@@ -381,6 +403,7 @@ class HealthService {
     } else {
       _todaySteps = 0;
     }
+    _lastSavedSteps = _todaySteps;
     _stepsController.add(_todaySteps);
   }
 
@@ -425,8 +448,21 @@ class HealthService {
     final history = prefs.getStringList('steps_history') ?? [];
 
     // Xóa entry cũ của hôm nay (nếu có)
-    history.removeWhere((e) => e.startsWith('$todayKey|'));
-    history.add('$todayKey|$_todaySteps');
+    int? existingSteps;
+    for (var i = 0; i < history.length; i++) {
+      if (history[i].startsWith('$todayKey|')) {
+        final parts = history[i].split('|');
+        if (parts.length == 2) {
+          existingSteps = int.tryParse(parts[1]);
+        }
+        history.removeAt(i);
+        break;
+      }
+    }
+
+    final stepsToSave =
+        (_todaySteps <= 0 && (existingSteps ?? 0) > 0) ? existingSteps! : _todaySteps;
+    history.add('$todayKey|$stepsToSave');
 
     // Giữ 365 ngày
     while (history.length > 365) {
@@ -435,10 +471,13 @@ class HealthService {
     await prefs.setStringList('steps_history', history);
 
     // Sync to Firestore
-    await FirestoreService().saveHealthDaily(
-      dateKey: todayKey,
-      steps: _todaySteps,
-    );
+    if (stepsToSave > 0) {
+      await FirestoreService().saveHealthDaily(
+        dateKey: todayKey,
+        steps: stepsToSave,
+      );
+    }
+    _lastSavedSteps = stepsToSave;
   }
 
   // ===== HEIGHT & BMI =====
