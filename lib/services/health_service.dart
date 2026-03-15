@@ -84,6 +84,8 @@ class HealthService {
     }
     // Sync dữ liệu từ Firestore nếu local trống (sau cài lại app)
     await _syncFromFirestore();
+    // Đẩy local steps lên Firestore để tránh mất dữ liệu khi đăng xuất/đăng nhập
+    await _syncLocalStepsToFirestore();
     // Cố gắng refresh steps từ Health (không prompt quyền nếu chưa cấp)
     await refreshStepsFromHealth(requestPermission: false);
   }
@@ -176,6 +178,30 @@ class HealthService {
       }
     } catch (e) {
       debugPrint('Sync from Firestore error: $e');
+    }
+  }
+
+  Future<void> _syncLocalStepsToFirestore({int maxDays = 365}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final history = prefs.getStringList('steps_history') ?? [];
+      if (history.isEmpty) return;
+
+      final start = history.length > maxDays ? history.length - maxDays : 0;
+      for (var i = start; i < history.length; i++) {
+        final parts = history[i].split('|');
+        if (parts.length != 2) continue;
+        final dateKey = parts[0];
+        final steps = int.tryParse(parts[1]) ?? 0;
+        if (steps > 0) {
+          await FirestoreService().saveHealthDaily(
+            dateKey: dateKey,
+            steps: steps,
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Sync local steps to Firestore error: $e');
     }
   }
 

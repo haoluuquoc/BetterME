@@ -1090,15 +1090,16 @@ class NotificationService {
     );
   }
   
-  Future<void> schedulePeriodicNotification({
+  Future<int> schedulePeriodicNotification({
     required int id,
     required String title,
     required String body,
     required Duration interval,
     String? payload,
   }) async {
-    if (kIsWeb) return;
-    
+    if (kIsWeb) return 0;
+    tz_data.initializeTimeZones();
+
     // iOS yêu cầu interval tối thiểu 60 giây
     Duration adjustedInterval = interval;
     if (Platform.isIOS && interval.inSeconds < 60) {
@@ -1163,6 +1164,7 @@ class NotificationService {
     await prefs.setBool('water_reminder_enabled', true);
     // Lưu checkpoint cho iOS
     await prefs.setInt('ios_last_alarm_check_ms', now.millisecondsSinceEpoch);
+    return scheduled;
   }
   
   Future<void> cancelNotification(int id) async {

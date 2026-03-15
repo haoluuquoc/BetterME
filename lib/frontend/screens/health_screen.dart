@@ -16,6 +16,14 @@ class HealthScreen extends StatefulWidget {
 
 class _HealthScreenState extends State<HealthScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  static const Color _bgColor = Color(0xFF0B0B0D);
+  static const Color _cardColor = Color(0xFF1A1A1E);
+  static const Color _accentGreen = Color(0xFF9BEF3C);
+  static const Color _stepsColor = Color(0xFFB58CFF);
+  static const Color _distanceColor = Color(0xFF4EC9FF);
+  static const Color _ringColor = Color(0xFFFF2D55);
+  static const Color _ringTrack = Color(0xFF2A2A2E);
+
   late TabController _tabController;
   final _healthService = HealthService();
 
@@ -123,7 +131,11 @@ class _HealthScreenState extends State<HealthScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
+      backgroundColor: _bgColor,
       appBar: AppBar(
+        backgroundColor: _bgColor,
+        surfaceTintColor: Colors.transparent,
+        foregroundColor: Colors.white,
         title: const Text('Sức khỏe'),
         actions: [
           IconButton(
@@ -140,6 +152,9 @@ class _HealthScreenState extends State<HealthScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
+          indicatorColor: _accentGreen,
+          labelColor: _accentGreen,
+          unselectedLabelColor: Colors.grey[500],
           tabs: const [
             Tab(text: 'Hôm nay'),
             Tab(text: 'Lịch sử'),
@@ -161,40 +176,348 @@ class _HealthScreenState extends State<HealthScreen>
   // ==================== TAB 1: HÔm nay ====================
 
   Widget _buildTodayTab(ThemeData theme) {
-    final distanceStr = _healthService.formatDistance(_todaySteps);
     final calories = _healthService.getCalories(_todaySteps);
+    final caloriesInt = calories.round();
+    final caloriesGoal =
+        caloriesInt < 120 ? 120 : ((caloriesInt / 10).ceil() * 10);
+    final ringProgress = (caloriesInt / caloriesGoal).clamp(0.0, 1.0);
+    final stepsGoal = 10000;
+    final stepsProgress = (_todaySteps / stepsGoal).clamp(0.0, 1.0);
+    final distanceKm = _healthService.getDistanceKm(_todaySteps);
+    final distanceStr = distanceKm >= 1
+        ? '${NumberFormat('#,##0.00').format(distanceKm)}km'
+        : '${NumberFormat('#,##0').format(distanceKm * 1000)}m';
+
+    final todayStr =
+        DateFormat('EEEE, d MMM').format(DateTime.now()).toUpperCase();
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Birthday banner
+          Text(
+            todayStr,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.grey[500],
+              letterSpacing: 0.8,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Tóm tắt',
+            style: theme.textTheme.headlineMedium?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          _buildActivityRingCard(
+            theme,
+            ringProgress,
+            caloriesInt,
+            caloriesGoal,
+          ),
+          const SizedBox(height: 16),
+
+          Row(
+            children: [
+              Expanded(
+                child: _buildStatCard(
+                  theme,
+                  title: 'Số bước',
+                  subtitle: 'Hôm nay',
+                  value: NumberFormat('#,###').format(_todaySteps),
+                  valueColor: _stepsColor,
+                  barsColor: _stepsColor,
+                  progress: stepsProgress,
+                  seed: _todaySteps,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildStatCard(
+                  theme,
+                  title: 'Quãng đường',
+                  subtitle: 'Hôm nay',
+                  value: distanceStr,
+                  valueColor: _distanceColor,
+                  barsColor: _distanceColor,
+                  progress: (distanceKm / 5).clamp(0.0, 1.0),
+                  seed: (distanceKm * 1000).round(),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          Row(
+            children: [
+              Expanded(
+                child: _buildSmallMetricCard(
+                  theme,
+                  title: 'Giấc ngủ',
+                  value: _todaySleep != null
+                      ? '${_todaySleep!.toStringAsFixed(1)}h'
+                      : '--',
+                  icon: Icons.bedtime,
+                  color: Colors.indigoAccent,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildSmallMetricCard(
+                  theme,
+                  title: 'Cân nặng',
+                  value: _latestWeight != null
+                      ? '${_latestWeight!.toStringAsFixed(1)} kg'
+                      : '--',
+                  icon: Icons.monitor_weight,
+                  color: Colors.tealAccent.shade700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          _buildHeightBmiCard(theme),
+          const SizedBox(height: 16),
+
           if (_todayBirthdays.isNotEmpty) ...[
             _buildBirthdayBanner(theme),
             const SizedBox(height: 16),
           ],
 
-          // Today Activity card
-          _buildActivityCard(theme, distanceStr, calories),
-          const SizedBox(height: 16),
-
-          // Sleep + Weight row
-          Row(
-            children: [
-              Expanded(child: _buildSleepCard(theme)),
-              const SizedBox(width: 12),
-              Expanded(child: _buildWeightCard(theme)),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // Height + BMI card
-          _buildHeightBmiCard(theme),
-          const SizedBox(height: 16),
-
           // Health recommendations
           _buildRecommendationsCard(theme),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActivityRingCard(
+    ThemeData theme,
+    double progress,
+    int calories,
+    int goal,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            height: 120,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 120,
+                  height: 120,
+                  child: CircularProgressIndicator(
+                    value: progress,
+                    strokeWidth: 14,
+                    backgroundColor: _ringTrack,
+                    valueColor: const AlwaysStoppedAnimation(_ringColor),
+                  ),
+                ),
+                Positioned(
+                  top: 6,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: _ringColor.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.arrow_upward,
+                      color: _ringColor,
+                      size: 16,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Vòng Hoạt động',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Di chuyển',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.grey[400],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${NumberFormat('#,###').format(calories)}/${NumberFormat('#,###').format(goal)} kcal',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: _ringColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard(
+    ThemeData theme, {
+    required String title,
+    required String subtitle,
+    required String value,
+    required Color valueColor,
+    required Color barsColor,
+    required double progress,
+    required int seed,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Icon(Icons.chevron_right, color: _accentGreen, size: 20),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.grey[500],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              color: valueColor,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildMiniBars(barsColor, seed),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              minHeight: 6,
+              value: progress,
+              backgroundColor: _ringTrack,
+              valueColor: AlwaysStoppedAnimation(barsColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniBars(Color color, int seed) {
+    final heights = List<double>.generate(12, (i) {
+      final v = (seed + i * 37) % 100;
+      return (v / 100).clamp(0.15, 0.95);
+    });
+
+    return SizedBox(
+      height: 36,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: heights
+            .map(
+              (h) => Expanded(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 1.2),
+                  height: 6 + h * 30,
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.85),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _buildSmallMetricCard(
+    ThemeData theme, {
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.grey[500],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -483,6 +806,7 @@ class _HealthScreenState extends State<HealthScreen>
       onTap: _showHeightDialog,
       child: Card(
         elevation: 0,
+        color: _cardColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -498,6 +822,7 @@ class _HealthScreenState extends State<HealthScreen>
                           : 'Nhập chiều cao',
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.bold,
+                        color: Colors.white,
                       ),
                     ),
                     if (bmi != null) ...[
@@ -506,7 +831,9 @@ class _HealthScreenState extends State<HealthScreen>
                         children: [
                           Text(
                             'BMI: ${bmi.toStringAsFixed(1)} — ',
-                            style: theme.textTheme.bodySmall,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.grey[300],
+                            ),
                           ),
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -530,7 +857,7 @@ class _HealthScreenState extends State<HealthScreen>
                       Text(
                         'Nhấn để nhập chiều cao & tính BMI',
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppColors.grey,
+                          color: Colors.grey[500],
                         ),
                       ),
                     ],
@@ -555,6 +882,7 @@ class _HealthScreenState extends State<HealthScreen>
 
     return Card(
       elevation: 0,
+      color: _cardColor,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -565,6 +893,7 @@ class _HealthScreenState extends State<HealthScreen>
               'Lời khuyên sức khỏe',
               style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.bold,
+                color: Colors.white,
               ),
             ),
             const SizedBox(height: 14),
@@ -574,6 +903,7 @@ class _HealthScreenState extends State<HealthScreen>
                     tip,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       height: 1.4,
+                      color: Colors.grey[300],
                     ),
                   ),
                 )),
@@ -643,6 +973,7 @@ class _HealthScreenState extends State<HealthScreen>
   }) {
     return Card(
       elevation: 0,
+      color: _cardColor,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -656,6 +987,7 @@ class _HealthScreenState extends State<HealthScreen>
                     title,
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -670,7 +1002,7 @@ class _HealthScreenState extends State<HealthScreen>
                 child: Text(
                   'Chưa có dữ liệu',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppColors.grey,
+                    color: Colors.grey[500],
                   ),
                 ),
               )
@@ -684,7 +1016,7 @@ class _HealthScreenState extends State<HealthScreen>
                     children: [
                       Text(date,
                           style: theme.textTheme.bodySmall
-                              ?.copyWith(color: AppColors.grey)),
+                              ?.copyWith(color: Colors.grey[400])),
                       Text(
                         valueBuilder(item),
                         style: theme.textTheme.bodyMedium?.copyWith(

@@ -102,6 +102,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _setupAlarmListener() {
     if (kIsWeb) return;
     _alarmSubscription = NotificationService.onAlarmFired.listen((_) async {
+      if (!kIsWeb && Platform.isIOS) {
+        return;
+      }
       // Reset block flag khi có alarm mới (dùng SharedPreferences)
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('block_alarm_screen', false);
@@ -119,6 +122,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _setupUpdateAlarmListener() {
     if (kIsWeb) return;
     _updateAlarmSubscription = NotificationService.onUpdateAlarmFired.listen((_) {
+      if (!kIsWeb && Platform.isIOS) {
+        return;
+      }
       if (mounted) {
         _showUpdateAlarmScreen();
       }
@@ -434,6 +440,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         setState(() => _currentIndex = 1);
       });
     } else if (payload == 'water_alarm_screen') {
+      if (!kIsWeb && Platform.isIOS) return;
       // Trường hợp này đã được xử lý ở app.dart (initialRoute = waterAlarm)
       // Nhưng nếu vì lý do nào đó vẫn đến được đây → hiện alarm screen
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -441,6 +448,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _showAlarmScreen();
       });
     } else if (payload == 'water_snooze') {
+      if (!kIsWeb && Platform.isIOS) return;
       // User bấm "Để sau" từ notification khi app chưa chạy
       WidgetsBinding.instance.addPostFrameCallback((_) {
         NotificationService().cancelNotification(0);
@@ -461,7 +469,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (blocked) return;
       
       final pending = prefs.getBool('pending_water_dialog') ?? false;
-      if (pending && mounted) {
+      if (pending && mounted && !( !kIsWeb && Platform.isIOS)) {
         await prefs.setBool('pending_water_dialog', false);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           NotificationService().cancelNotification(0);
@@ -1396,15 +1404,25 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
       final interval = _getIntervalDuration();
       
       // Lên lịch notification
-      await NotificationService().schedulePeriodicNotification(
+      final scheduledCount = await NotificationService().schedulePeriodicNotification(
         id: 1,
         title: 'Đã đến uống nước!',
         body: 'Gợi ý: ${_suggestedAmountPerDrink}ml. Uống ngay!',
         interval: interval,
         payload: 'water_reminder',
       );
-      
-      debugPrint('✅ Background notifications scheduled with interval: ${interval.inMinutes} min');
+      if (scheduledCount == 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Không lên lịch được nhắc nhở. Vui lòng kiểm tra quyền thông báo.'),
+            ),
+          );
+        }
+        return false;
+      }
+
+      debugPrint('✅ Background notifications scheduled: $scheduledCount items');
       return true;
     } catch (e) {
       debugPrint('❌ Error scheduling notifications: $e');
