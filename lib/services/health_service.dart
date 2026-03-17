@@ -52,11 +52,19 @@ class HealthService {
 
   int? _lastSavedSteps;
   int? _lastRawSteps;
+  Timer? _saveDebounceTimer;
+  Timer? _reconcileTimer;
 
   bool _initialized = false;
 
   /// Reset state khi đăng xuất — để re-sync Firestore cho user mới
   void resetForLogout() {
+    _stepSubscription?.cancel();
+    _stepSubscription = null;
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = null;
+    _reconcileTimer?.cancel();
+    _reconcileTimer = null;
     _todaySteps = 0;
     _lastSavedSteps = null;
     _lastRawSteps = null;
@@ -76,20 +84,22 @@ class HealthService {
         debugPrint('Activity recognition permission not granted; step counter not started.');
       }
     }
-    if (canStart) {
-      _startListening();
-      _initialized = true;
-    } else {
-      _initialized = false;
-    }
     // Sync dữ liệu từ Firestore nếu local trống (sau cài lại app)
     await _syncFromFirestore();
+    await _syncTodayStepsFromFirestore();
     // Đẩy local steps lên Firestore để tránh mất dữ liệu khi đăng xuất/đăng nhập
     await _syncLocalStepsToFirestore();
     // Cố gắng refresh steps từ Health (iOS sẽ yêu cầu quyền lần đầu)
     await refreshStepsFromHealth(
       requestPermission: !kIsWeb && Platform.isIOS,
     );
+
+    if (canStart) {
+      _startListening();
+      _initialized = true;
+    } else {
+      _initialized = false;
+    }
   }
 
   /// Đồng bộ TẤT CẢ dữ liệu sức khỏe từ Firestore nếu local trống (sau cài lại app / đổi tài khoản)
@@ -116,7 +126,14 @@ class HealthService {
       }
 
       // Sync lịch sử sức khỏe (steps, sleep, weight) — 365 ngày
-      final needSteps = (prefs.getStringList('steps_history') ?? []).isEmpty;
+      final localStepsHistory = prefs.getStringList('steps_history') ?? [];
+      final hasPositiveLocalSteps = localStepsHistory.any((entry) {
+        final parts = entry.split('|');
+        if (parts.length != 2) return false;
+        final value = int.tryParse(parts[1]) ?? 0;
+        return value > 0;
+      });
+      final needSteps = localStepsHistory.isEmpty || !hasPositiveLocalSteps;
       final needSleep = (prefs.getStringList('sleep_history') ?? []).isEmpty;
       final needWeight = (prefs.getStringList('weight_history') ?? []).isEmpty;
 
@@ -135,17 +152,9 @@ class HealthService {
               final steps = (day['steps'] as num).toInt();
               if (steps > 0) {
                 stepsList.add('$date|$steps');
-                
-                // Tránh reset về 0 nếu dữ liệu là của ngày hôm nay
+                              // Tránh reset về 0 nếu dữ liệu là của ngày hôm nay
                 if (date == _todayKey()) {
-                  _todaySteps = steps;
-                  prefs.setInt('steps_today', steps);
-                  prefs.setString('steps_date', date);
-                  
-                  prefs.setBool('steps_need_rebase', true);
-                  prefs.setInt('steps_rebase_target', steps);
-                  prefs.setString('steps_rebase_date', date);
-                  _stepsController.add(steps);
+                  await _persistTodaySteps(prefs, date, steps);
                 }
               }
             }
@@ -181,6 +190,38 @@ class HealthService {
     } catch (e) {
       debugPrint('Sync from Firestore error: $e');
     }
+  }
+
+  Future<void> _syncTodayStepsFromFirestore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final todayKey = _todayKey();
+      final data = await FirestoreService().loadHealthDaily(todayKey);
+      if (data == null || data['steps'] == null) return;
+
+      final remoteSteps = (data['steps'] as num).toInt();
+      if (remoteSteps <= 0 || remoteSteps <= _todaySteps) return;
+
+      await _persistTodaySteps(prefs, todayKey, remoteSteps);
+      await _upsertStepsHistoryEntry(prefs, todayKey, remoteSteps);
+      _lastSavedSteps = remoteSteps;
+    } catch (e) {
+      debugPrint('Sync today steps from Firestore error: $e');
+    }
+  }
+
+  Future<void> _upsertStepsHistoryEntry(
+    SharedPreferences prefs,
+    String dateKey,
+    int steps,
+  ) async {
+    final history = prefs.getStringList('steps_history') ?? [];
+    history.removeWhere((e) => e.startsWith('$dateKey|'));
+    history.add('$dateKey|$steps');
+    while (history.length > 365) {
+      history.removeAt(0);
+    }
+    await prefs.setStringList('steps_history', history);
   }
 
   Future<void> _syncLocalStepsToFirestore({int maxDays = 365}) async {
@@ -298,20 +339,11 @@ class HealthService {
     await prefs.remove('steps_rebase_date');
   }
 
-  /// Refresh steps từ HealthKit/Health Connect khi app mở lại hoặc bấm nút refresh
-  Future<StepsRefreshResult> refreshStepsFromHealth(
-      {bool requestPermission = true}) async {
-    final readResult =
-        await _getStepsFromHealth(requestPermission: requestPermission);
-    if (!readResult.isSuccess) return readResult;
-    final healthSteps = readResult.steps!;
-
-    final prefs = await SharedPreferences.getInstance();
-    final todayKey = _todayKey();
-    
-    // Ngăn chặn HealthConnect ghi đè thành 0 hoặc số nhỏ hơn nếu Firestore đã có lịch sử lớn hơn (đổi máy/reinstall)
-    final steps = healthSteps > _todaySteps ? healthSteps : _todaySteps;
-
+  Future<void> _persistTodaySteps(
+    SharedPreferences prefs,
+    String todayKey,
+    int steps,
+  ) async {
     await prefs.setString('steps_date', todayKey);
     await prefs.setInt('steps_today', steps);
 
@@ -326,6 +358,22 @@ class HealthService {
 
     _todaySteps = steps;
     _stepsController.add(_todaySteps);
+  }
+
+  /// Refresh steps từ HealthKit/Health Connect khi app mở lại hoặc bấm nút refresh
+  Future<StepsRefreshResult> refreshStepsFromHealth(
+      {bool requestPermission = true}) async {
+    final readResult =
+        await _getStepsFromHealth(requestPermission: requestPermission);
+    if (!readResult.isSuccess) return readResult;
+    final healthSteps = readResult.steps!;
+
+    final prefs = await SharedPreferences.getInstance();
+    final todayKey = _todayKey();
+    
+    // Ngăn chặn HealthConnect ghi đè thành 0 hoặc số nhỏ hơn nếu Firestore đã có lịch sử lớn hơn (đổi máy/reinstall)
+    final steps = healthSteps > _todaySteps ? healthSteps : _todaySteps;
+    await _persistTodaySteps(prefs, todayKey, steps);
     await saveTodayStepsToHistory();
     return StepsRefreshResult.success(steps);
   }
@@ -337,9 +385,22 @@ class HealthService {
         _onStepCount,
         onError: _onStepCountError,
       );
+      _startPeriodicReconcile();
     } catch (e) {
       debugPrint('Pedometer init error: $e');
     }
+  }
+
+  void _startPeriodicReconcile() {
+    _reconcileTimer?.cancel();
+    _reconcileTimer = Timer.periodic(const Duration(seconds: 20), (_) async {
+      if (!_initialized) return;
+      try {
+        await refreshStepsFromHealth(requestPermission: false);
+      } catch (_) {
+        // Keep pedometer realtime updates running even if health reconciliation fails.
+      }
+    });
   }
 
   void _onStepCount(StepCount event) async {
@@ -370,7 +431,12 @@ class HealthService {
         _todaySteps = rebaseTarget;
         await _clearRebaseFlags(prefs);
       } else {
-        final baseline = prefs.getInt('steps_baseline') ?? event.steps;
+        var baseline = prefs.getInt('steps_baseline');
+        if (baseline == null) {
+          // If baseline is missing, infer from current displayed steps to avoid getting stuck at 0.
+          baseline = (event.steps - _todaySteps).clamp(0, event.steps);
+          await prefs.setInt('steps_baseline', baseline);
+        }
         _todaySteps = event.steps - baseline;
         if (_todaySteps < 0) _todaySteps = 0;
       }
@@ -380,7 +446,7 @@ class HealthService {
     _stepsController.add(_todaySteps);
 
     // Lưu lịch sử + sync Firestore khi steps thay đổi
-    await _debouncedSave();
+    _debouncedSave();
   }
 
   void _onStepCountError(dynamic error) {
@@ -388,11 +454,18 @@ class HealthService {
   }
 
   /// Lưu history + Firestore khi steps thay đổi
-  Future<void> _debouncedSave() async {
+  void _debouncedSave() {
     if (_lastSavedSteps != null && _todaySteps == _lastSavedSteps) {
       return;
     }
-    await saveTodayStepsToHistory();
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = Timer(const Duration(seconds: 2), () async {
+      try {
+        await saveTodayStepsToHistory();
+      } catch (e) {
+        debugPrint('Debounced step save error: $e');
+      }
+    });
   }
 
   Future<void> _loadTodaySteps() async {
