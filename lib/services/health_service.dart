@@ -368,11 +368,25 @@ class HealthService {
     if (!readResult.isSuccess) return readResult;
     final healthSteps = readResult.steps!;
 
+    // Also pull from Firestore to ensure latest data
+    int? firestoreSteps;
+    try {
+      final todayKey = _todayKey();
+      final data = await FirestoreService().loadHealthDaily(todayKey);
+      if (data != null && data['steps'] != null) {
+        firestoreSteps = (data['steps'] as num).toInt();
+      }
+    } catch (e) {
+      debugPrint('Refresh: Firestore pull error: $e');
+    }
+
+    // Use the maximum between Health Connect and Firestore
+    final steps = (firestoreSteps ?? 0) > healthSteps
+        ? firestoreSteps!
+        : (healthSteps > _todaySteps ? healthSteps : _todaySteps);
+
     final prefs = await SharedPreferences.getInstance();
     final todayKey = _todayKey();
-    
-    // Ngăn chặn HealthConnect ghi đè thành 0 hoặc số nhỏ hơn nếu Firestore đã có lịch sử lớn hơn (đổi máy/reinstall)
-    final steps = healthSteps > _todaySteps ? healthSteps : _todaySteps;
     await _persistTodaySteps(prefs, todayKey, steps);
     await saveTodayStepsToHistory();
     return StepsRefreshResult.success(steps);
