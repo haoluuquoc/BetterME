@@ -74,31 +74,39 @@ class HealthService {
 
   /// Khởi tạo step counter
   Future<void> init() async {
-    if (kIsWeb || _initialized) return;
+    if (kIsWeb) return;
+
+    // Phần sync Firestore: LUÔN chạy lại mỗi khi đăng nhập/init
     await _loadTodaySteps();
-    // Xin quyền ACTIVITY_RECOGNITION trên Android 10+
-    bool canStart = true;
-    if (!kIsWeb && Platform.isAndroid) {
-      canStart = await _ensureActivityRecognitionPermission();
-      if (!canStart) {
-        debugPrint('Activity recognition permission not granted; step counter not started.');
-      }
-    }
-    // Sync dữ liệu từ Firestore nếu local trống (sau cài lại app)
+    debugPrint('[HealthService.init] _todaySteps sau _loadTodaySteps: $_todaySteps, _initialized=$_initialized');
+
+    // Sync dữ liệu từ Firestore nếu local trống (sau cài lại app / đổi tài khoản)
     await _syncFromFirestore();
     await _syncTodayStepsFromFirestore();
+    debugPrint('[HealthService.init] _todaySteps sau sync Firestore: $_todaySteps');
+
     // Đẩy local steps lên Firestore để tránh mất dữ liệu khi đăng xuất/đăng nhập
     await _syncLocalStepsToFirestore();
+
     // Cố gắng refresh steps từ Health (iOS sẽ yêu cầu quyền lần đầu)
     await refreshStepsFromHealth(
       requestPermission: !kIsWeb && Platform.isIOS,
     );
+    debugPrint('[HealthService.init] _todaySteps sau refreshHealth: $_todaySteps');
 
-    if (canStart) {
-      _startListening();
-      _initialized = true;
-    } else {
-      _initialized = false;
+    // Phần pedometer: chỉ khởi tạo 1 lần
+    if (!_initialized) {
+      bool canStart = true;
+      if (!kIsWeb && Platform.isAndroid) {
+        canStart = await _ensureActivityRecognitionPermission();
+        if (!canStart) {
+          debugPrint('Activity recognition permission not granted; step counter not started.');
+        }
+      }
+      if (canStart) {
+        _startListening();
+        _initialized = true;
+      }
     }
   }
 
@@ -196,15 +204,33 @@ class HealthService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final todayKey = _todayKey();
+      debugPrint('[_syncTodaySteps] todayKey=$todayKey, _todaySteps=$_todaySteps');
+
       final data = await FirestoreService().loadHealthDaily(todayKey);
-      if (data == null || data['steps'] == null) return;
+      debugPrint('[_syncTodaySteps] Firestore data=$data');
+
+      if (data == null || data['steps'] == null) {
+        debugPrint('[_syncTodaySteps] No steps data on Firestore for today, skipping.');
+        return;
+      }
 
       final remoteSteps = (data['steps'] as num).toInt();
-      if (remoteSteps <= 0 || remoteSteps <= _todaySteps) return;
+      debugPrint('[_syncTodaySteps] remoteSteps=$remoteSteps, localSteps=$_todaySteps');
+
+      if (remoteSteps <= 0) {
+        debugPrint('[_syncTodaySteps] remoteSteps <= 0, skipping.');
+        return;
+      }
+
+      if (remoteSteps <= _todaySteps) {
+        debugPrint('[_syncTodaySteps] remoteSteps <= _todaySteps, skipping (local is higher).');
+        return;
+      }
 
       await _persistTodaySteps(prefs, todayKey, remoteSteps);
       await _upsertStepsHistoryEntry(prefs, todayKey, remoteSteps);
       _lastSavedSteps = remoteSteps;
+      debugPrint('[_syncTodaySteps] ✅ Synced steps from Firestore: $remoteSteps');
     } catch (e) {
       debugPrint('Sync today steps from Firestore error: $e');
     }
@@ -361,8 +387,10 @@ class HealthService {
   }
 
   /// Refresh steps từ HealthKit/Health Connect khi app mở lại hoặc bấm nút refresh
-  Future<StepsRefreshResult> refreshStepsFromHealth(
-      {bool requestPermission = true}) async {
+  Future<StepsRefreshResult> refreshStepsFromHealth({
+    bool requestPermission = true,
+    bool pullFromFirestore = false,
+  }) async {
     final readResult =
         await _getStepsFromHealth(requestPermission: requestPermission);
     if (!readResult.isSuccess) return readResult;
@@ -370,20 +398,21 @@ class HealthService {
 
     // Also pull from Firestore to ensure latest data
     int? firestoreSteps;
-    try {
-      final todayKey = _todayKey();
-      final data = await FirestoreService().loadHealthDaily(todayKey);
-      if (data != null && data['steps'] != null) {
-        firestoreSteps = (data['steps'] as num).toInt();
+    if (pullFromFirestore) {
+      try {
+        final todayKey = _todayKey();
+        final data = await FirestoreService().loadHealthDaily(todayKey);
+        if (data != null && data['steps'] != null) {
+          firestoreSteps = (data['steps'] as num).toInt();
+        }
+      } catch (e) {
+        debugPrint('Refresh: Firestore pull error: $e');
       }
-    } catch (e) {
-      debugPrint('Refresh: Firestore pull error: $e');
     }
 
-    // Use the maximum between Health Connect and Firestore
-    final steps = (firestoreSteps ?? 0) > healthSteps
-        ? firestoreSteps!
-        : (healthSteps > _todaySteps ? healthSteps : _todaySteps);
+    // Use the maximum between Health Connect, Firestore, and local steps
+    final maxLocal = healthSteps > _todaySteps ? healthSteps : _todaySteps;
+    final steps = (firestoreSteps ?? 0) > maxLocal ? firestoreSteps! : maxLocal;
 
     final prefs = await SharedPreferences.getInstance();
     final todayKey = _todayKey();

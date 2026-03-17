@@ -89,6 +89,13 @@ class AuthService {
     } catch (e) {
       // Không block login nếu Firestore lỗi
     }
+
+    // Tự động kéo dữ liệu sức khỏe từ Firestore ngay sau khi đăng nhập
+    try {
+      await HealthService().init();
+    } catch (e) {
+      debugPrint('Sync health upon login error: $e');
+    }
   }
 
   // ==================== GOOGLE SIGN IN ======================================

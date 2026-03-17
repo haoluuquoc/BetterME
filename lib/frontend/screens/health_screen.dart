@@ -54,22 +54,27 @@ class _HealthScreenState extends State<HealthScreen>
     _initData();
   }
 
-  Future<void> _initData() async {
+  Future<void> _initData({bool resumed = false}) async {
     await _healthService.init();
     _todaySteps = _healthService.todaySteps;
     await _stepsSub?.cancel();
     _stepsSub = _healthService.stepsStream.listen((steps) {
       if (mounted) setState(() => _todaySteps = steps);
     });
-    await _healthService.refreshStepsFromHealth(requestPermission: false);
+    await _healthService.refreshStepsFromHealth(
+      requestPermission: false,
+      pullFromFirestore: resumed,
+    );
     await _loadAllData();
   }
 
   Future<void> _refreshSteps() async {
     if (_refreshingSteps) return;
     setState(() => _refreshingSteps = true);
-    final result =
-        await _healthService.refreshStepsFromHealth(requestPermission: true);
+    final result = await _healthService.refreshStepsFromHealth(
+      requestPermission: true,
+      pullFromFirestore: true,
+    );
     if (mounted) {
       setState(() {
         _refreshingSteps = false;
@@ -123,7 +128,8 @@ class _HealthScreenState extends State<HealthScreen>
       _healthService.saveTodayStepsToHistory();
     } else if (state == AppLifecycleState.resumed) {
       // Re-init để lấy lại permission nếu user vừa cấp trong Settings
-      _initData();
+      // và pull dữ liệu từ Firestore (khi user dùng thiết bị khác rồi đổi sang thiết bị này)
+      _initData(resumed: true);
     }
   }
 
