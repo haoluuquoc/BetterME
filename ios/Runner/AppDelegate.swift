@@ -46,6 +46,12 @@ import UserNotifications
           result(false)
         case "requestActivityRecognition":
           result(true)
+        case "openAppSettings":
+          // Mở Settings > BetterMe để user có thể cấp quyền Health
+          if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
+          }
+          result(nil)
         default:
           result(FlutterMethodNotImplemented)
         }

@@ -24,34 +24,32 @@ void main() async {
   
   if (!kIsWeb) {
     // Kiểm tra nhanh: app có được launch từ alarm notification không?
-    // Chỉ init plugin + check launch details, KHÔNG cần Firebase
-    try {
-      isAlarmLaunch = await NotificationService().checkAlarmLaunch();
-    } catch (e) {
-      debugPrint('checkAlarmLaunch error (iOS?): $e');
-    }
-    
-    // Kiểm tra nếu app được launch từ nút "Để sau"
-    // Nếu đúng → thoát app ngay, không load UI
-    if (NotificationService.pendingPayload == 'water_snooze') {
-      isSnoozeLaunch = true;
+    // CHỈ Android dùng full-screen alarm — iOS dùng notification bình thường
+    if (Platform.isAndroid) {
+      try {
+        isAlarmLaunch = await NotificationService().checkAlarmLaunch();
+      } catch (e) {
+        debugPrint('checkAlarmLaunch error: $e');
+      }
+      
+      // Kiểm tra nếu app được launch từ nút "Để sau"
+      // Nếu đúng → thoát app ngay, không load UI
+      if (NotificationService.pendingPayload == 'water_snooze') {
+        isSnoozeLaunch = true;
+      }
     }
   }
   
   if (isSnoozeLaunch) {
-    // SNOOZE LAUNCH: xử lý snooze rồi thoát, không hiển thị UI
+    // SNOOZE LAUNCH: xử lý snooze rồi thoát, không hiển thị UI (chỉ Android)
     await NotificationService().handleSnoozeLaunchAndExit();
-    if (!kIsWeb && Platform.isAndroid) {
-      // Android: thoát app ngay, snooze đã được AlarmManager lên lịch
-      SystemNavigator.pop();
-      return;
-    }
-    // iOS: tránh mở UI khi bấm "Để sau"
+    // Android: thoát app ngay, snooze đã được AlarmManager lên lịch
+    SystemNavigator.pop();
     return;
   }
   
   if (!isSnoozeLaunch && isAlarmLaunch) {
-    // ALARM LAUNCH: hiện alarm screen NGAY LẬP TỨC, không đợi Firebase
+    // ALARM LAUNCH (chỉ Android): hiện alarm screen NGAY LẬP TỨC, không đợi Firebase
     runApp(const BetterMEApp());
     
     // Init Firebase + NotificationService NGẦM sau khi UI đã hiện

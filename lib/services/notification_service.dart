@@ -11,6 +11,9 @@ import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Channel version — tăng khi cần buộc Android tạo lại channel mới
+const int _channelVersion = 12;
+
 /// Port name cho IsolateNameServer - giao tiếp giữa background và foreground
 const String waterAlarmPortName = 'water_alarm_port';
 
@@ -90,7 +93,7 @@ Future<void> _scheduleSnoozeInBackground() async {
     );
     
     final snoozeNotifDetails = AndroidNotificationDetails(
-      'water_snooze_v11_$mode',
+      'water_snooze_v${_channelVersion}_$mode',
       'Nhắc nhở uống nước (để sau)',
       channelDescription: 'Thông báo nhắc nhở sau khi bấm để sau',
       importance: Importance.max,
@@ -240,8 +243,8 @@ Future<AndroidNotificationDetails> _buildNotificationDetails(String title) async
   );
   
   // Dùng channel ID version mới để Android tạo channel mới với settings đúng
-  // Thêm timestamp để buộc Android tạo channel mới mỗi lần đổi mode
-  final channelId = 'water_alarm_v11_$mode';
+  // Android cache channel settings → tăng version khi cần reset
+  final channelId = 'water_alarm_v${_channelVersion}_$mode';
   final channelName = 'Nhắc nhở uống nước ($mode)';
   
   // Pattern rung liên tục: [delay, rung, nghỉ, rung, nghỉ, rung, nghỉ, rung, nghỉ, rung]
@@ -276,10 +279,15 @@ Future<AndroidNotificationDetails> _buildNotificationDetails(String title) async
 /// Tạo DarwinNotificationDetails cho iOS theo chế độ âm thanh đã chọn:
 /// sound  → có âm thanh + timeSensitive
 /// both   → giống sound (iOS không tách rung riêng được)
-/// vibrate→ không âm thanh, dựa vào cài đặt rung của hệ thống iPhone
+/// vibrate→ BẬT presentSound (trên iOS, rung chỉ kích hoạt khi có sound;
+///          nếu tắt presentSound thì iOS KHÔNG rung). Rung phụ thuộc cài đặt
+///          Sound/Vibrate trong Settings > Sounds & Haptics trên iPhone.
 /// silent → không âm thanh + passive (ít intrusive nhất)
 DarwinNotificationDetails _buildDarwinDetails(String mode) {
-  final bool hasSound = mode == 'sound' || mode == 'both';
+  // Trên iOS: nếu presentSound = false thì iOS KHÔNG rung.
+  // Vì vậy chế độ 'vibrate' cũng cần bật presentSound để iOS trigger rung.
+  // Chỉ 'silent' mới thực sự tắt sound.
+  final bool hasSound = mode != 'silent';
   final interruptionLevel = mode == 'silent'
       ? InterruptionLevel.passive
       : InterruptionLevel.timeSensitive;
@@ -348,7 +356,7 @@ Future<void> snoozeAlarmCallback() async {
     );
     
     final androidDetails = AndroidNotificationDetails(
-      'water_alarm_v11_$mode',
+      'water_alarm_v${_channelVersion}_$mode',
       'Nhắc nhở uống nước ($mode)',
       channelDescription: 'Thông báo nhắc nhở uống nước',
       importance: Importance.max,
@@ -591,7 +599,7 @@ class NotificationService {
         
         // Hiện notification popup "Sẽ nhắc lại sau 20 giây"
         final snoozeNotifDetails = AndroidNotificationDetails(
-          'water_snooze_v11_$mode',
+          'water_snooze_v${_channelVersion}_$mode',
           'Nhắc nhở uống nước (để sau)',
           channelDescription: 'Thông báo nhắc nhở sau khi bấm để sau',
           importance: Importance.max,
@@ -762,16 +770,39 @@ class NotificationService {
         pendingPayload = 'water_snooze';
       } else {
         // fullScreenIntent tự launch app hoặc tap notification body
-        // → hiện alarm screen
+      // → hiện alarm screen
         pendingPayload = 'water_alarm_screen';
       }
     }
     
     if (!kIsWeb && Platform.isAndroid) {
       await AndroidAlarmManager.initialize();
+      // Xóa các notification channels cũ (v1-v11) để Android tạo channel mới
+      // với đúng settings sound/vibration
+      await _deleteOldAndroidChannels();
     }
     
     _initialized = true;
+  }
+  
+  /// Xóa các notification channels cũ trên Android
+  /// Android cache channel settings, nên cần xóa channel cũ khi đổi mode
+  Future<void> _deleteOldAndroidChannels() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    final android = _notifications.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return;
+    
+    // Xóa tất cả channels cũ (version 1 đến version hiện tại - 1)
+    final modes = ['sound', 'vibrate', 'both', 'silent'];
+    for (int v = 1; v < _channelVersion; v++) {
+      for (final mode in modes) {
+        try {
+          await android.deleteNotificationChannel('water_alarm_v${v}_$mode');
+          await android.deleteNotificationChannel('water_snooze_v${v}_$mode');
+        } catch (_) {}
+      }
+    }
   }
   
   /// Đăng ký ReceivePort để nhận signal từ alarm callback
@@ -1038,7 +1069,7 @@ class NotificationService {
         : null;
     
     final androidDetails = AndroidNotificationDetails(
-      'water_snooze_v11_$mode',
+      'water_snooze_v${_channelVersion}_$mode',
       'Nhắc nhở uống nước (để sau)',
       channelDescription: 'Thông báo nhắc nhở sau khi bấm để sau',
       importance: Importance.max,

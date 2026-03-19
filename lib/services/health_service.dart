@@ -336,23 +336,61 @@ class HealthService {
       await _ensureHealthConfigured();
       final types = [HealthDataType.STEPS];
       final permissions = [HealthDataAccess.READ];
-      final hasPerms = await _health.hasPermissions(
-        types,
-        permissions: permissions,
-      );
-      bool granted = hasPerms ?? false;
-      if (!granted && requestPermission) {
-        granted = await _health.requestAuthorization(
+
+      if (Platform.isIOS) {
+        // iOS đặc biệt: hasPermissions() LUÔN trả về null vì Apple không cho
+        // app biết user đã cấp hay từ chối quyền (vì lý do riêng tư).
+        // Chiến lược: luôn gọi requestAuthorization (iOS chỉ hiện dialog lần đầu,
+        // các lần sau sẽ bỏ qua im lặng), rồi THỬ đọc dữ liệu trực tiếp.
+        // Nếu đọc được → user đã cấp quyền. Nếu null → chưa cấp hoặc chưa có data.
+        if (requestPermission) {
+          try {
+            await _health.requestAuthorization(types, permissions: permissions);
+          } catch (e) {
+            debugPrint('iOS requestAuthorization error (non-fatal): $e');
+          }
+        }
+        // Luôn thử đọc dữ liệu, bất kể kết quả requestAuthorization
+        final now = DateTime.now();
+        final start = DateTime(now.year, now.month, now.day);
+        final steps = await _health.getTotalStepsInInterval(start, now);
+        if (steps != null) {
+          return StepsRefreshResult.success(steps);
+        }
+        // steps == null có thể do: (1) chưa cấp quyền, hoặc (2) chưa đi bước nào
+        // Thử getHealthDataFromTypes để phân biệt 2 trường hợp
+        try {
+          await _health.getHealthDataFromTypes(
+            types: types,
+            startTime: start,
+            endTime: now,
+          );
+          // Nếu không throw exception → quyền đã được cấp, chỉ là chưa có data
+          return StepsRefreshResult.success(0);
+        } catch (e) {
+          debugPrint('iOS health data read failed (likely no permission): $e');
+          return StepsRefreshResult.permissionDenied();
+        }
+      } else {
+        // Android: hasPermissions hoạt động bình thường
+        final hasPerms = await _health.hasPermissions(
           types,
           permissions: permissions,
         );
+        bool granted = hasPerms ?? false;
+        if (!granted && requestPermission) {
+          granted = await _health.requestAuthorization(
+            types,
+            permissions: permissions,
+          );
+        }
+        if (!granted) return StepsRefreshResult.permissionDenied();
+        final now = DateTime.now();
+        final start = DateTime(now.year, now.month, now.day);
+        final steps = await _health.getTotalStepsInInterval(start, now);
+        if (steps == null) return StepsRefreshResult.noData();
+        return StepsRefreshResult.success(steps);
       }
-      if (!granted) return StepsRefreshResult.permissionDenied();
-      final now = DateTime.now();
-      final start = DateTime(now.year, now.month, now.day);
-      final steps = await _health.getTotalStepsInInterval(start, now);
-      if (steps == null) return StepsRefreshResult.noData();
-      return StepsRefreshResult.success(steps);
     } catch (e) {
       debugPrint('Health steps read error: $e');
       return StepsRefreshResult.error(e.toString());

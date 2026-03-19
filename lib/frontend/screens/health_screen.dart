@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../../app/theme/app_colors.dart';
 import '../../services/health_service.dart';
@@ -81,12 +84,61 @@ class _HealthScreenState extends State<HealthScreen>
         _todaySteps = _healthService.todaySteps;
       });
       await _loadAllData();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_stepsRefreshMessage(result.status)),
-        ),
-      );
+      // Trên iOS: nếu bị denied → hiện dialog hướng dẫn cấp quyền trong Settings
+      if (result.status == StepsRefreshStatus.permissionDenied &&
+          !kIsWeb && Platform.isIOS) {
+        _showIOSHealthPermissionDialog();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_stepsRefreshMessage(result.status)),
+          ),
+        );
+      }
     }
+  }
+
+  /// Hiện dialog hướng dẫn user cấp quyền HealthKit trên iOS
+  void _showIOSHealthPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cần cấp quyền Sức khỏe'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Để đọc bước chân, bạn cần cấp quyền trong Cài đặt iOS:'),
+            SizedBox(height: 12),
+            Text('1. Mở Cài đặt (Settings)'),
+            Text('2. Chọn Sức khỏe (Health)'),
+            Text('3. Chọn Quyền truy cập dữ liệu (Data Access)'),
+            Text('4. Chọn BetterMe'),
+            Text('5. Bật quyền đọc Bước chân (Steps)'),
+            SizedBox(height: 12),
+            Text(
+              'Lưu ý: Sau khi cấp quyền, quay lại app và bấm nút làm mới (↻).',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Để sau'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              // Mở Settings app
+              const MethodChannel('com.betterme.betterme/app')
+                  .invokeMethod('openAppSettings');
+            },
+            child: const Text('Mở Cài đặt'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadAllData() async {
@@ -1370,7 +1422,10 @@ class _HealthScreenState extends State<HealthScreen>
       case StepsRefreshStatus.success:
         return 'Đã cập nhật bước chân';
       case StepsRefreshStatus.permissionDenied:
-        return 'Chưa cấp quyền đọc bước chân trong Health/Health Connect';
+        if (!kIsWeb && Platform.isIOS) {
+          return 'Vui lòng cấp quyền trong Cài đặt > Sức khỏe > BetterMe';
+        }
+        return 'Chưa cấp quyền đọc bước chân trong Health Connect';
       case StepsRefreshStatus.noData:
         return 'Chưa có dữ liệu bước chân hôm nay';
       case StepsRefreshStatus.error:

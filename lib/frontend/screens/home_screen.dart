@@ -91,15 +91,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
   
-  /// iOS: kiểm tra có alarm đã fire khi app ở background không, và reschedule
+  /// iOS: reschedule notifications khi app resumed (iOS giới hạn 64 pending)
+  /// Hiện popup nhẹ thay vì alarm screen toàn màn hình
   void _checkIOSAlarmAndReschedule() async {
     // Reschedule để luôn có đủ notifications cho tương lai
     NotificationService().rescheduleWaterReminder();
     
-    // Kiểm tra xem có alarm đã trôi qua chưa xử lý không
+    // Kiểm tra xem có alarm đã fire chưa xử lý không → hiện popup
     final shouldShowAlarm = await NotificationService().checkIOSPendingAlarm();
     if (shouldShowAlarm && mounted && !_isAlarmShowing) {
-      _showAlarmScreen();
+      _showWaterReminderPopup();
     }
   }
   
@@ -178,6 +179,60 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _checkGoalAndAskContinue();
     }
     // result == 'snooze' → đã xử lý trong WaterAlarmScreen
+  }
+  
+  /// Popup nhẹ thay thế alarm screen trên iOS
+  /// Hiện dialog nhỏ với "Uống ngay" / "Để sau" thay vì toàn màn hình vàng đen
+  void _showWaterReminderPopup() async {
+    if (_isAlarmShowing || !mounted) return;
+    _isAlarmShowing = true;
+    
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Text('💧', style: TextStyle(fontSize: 28)),
+            const SizedBox(width: 10),
+            const Text('Nhắc nhở uống nước'),
+          ],
+        ),
+        content: const Text(
+          'Đã đến lúc uống nước rồi! 🥤\nHãy uống một cốc nước để giữ sức khỏe nhé.',
+          style: TextStyle(fontSize: 15, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'snooze'),
+            child: const Text('Để sau'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, 'drink'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Uống ngay'),
+          ),
+        ],
+      ),
+    );
+    
+    _isAlarmShowing = false;
+    _lastAlarmDismissed = DateTime.now();
+    
+    if (result == 'drink') {
+      NotificationService().cancelNotification(0);
+      NotificationService().cancelSnooze();
+      setState(() => _currentIndex = 1);
+      _checkGoalAndAskContinue();
+    } else if (result == 'snooze') {
+      NotificationService().cancelNotification(0);
+      NotificationService().scheduleSnooze();
+    }
   }
   
   /// Kiểm tra mục tiêu và hỏi người dùng có muốn tiếp tục nhắc không
@@ -445,16 +500,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         setState(() => _currentIndex = 1);
       });
     } else if (payload == 'water_alarm_screen') {
-      if (!kIsWeb && Platform.isIOS) return;
-      // Trường hợp này đã được xử lý ở app.dart (initialRoute = waterAlarm)
-      // Nhưng nếu vì lý do nào đó vẫn đến được đây → hiện alarm screen
+      if (!kIsWeb && Platform.isIOS) {
+        // iOS: hiện popup thay vì alarm screen
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          NotificationService().cancelNotification(0);
+          _showWaterReminderPopup();
+        });
+        return;
+      }
+      // Android: alarm screen toàn màn hình
       WidgetsBinding.instance.addPostFrameCallback((_) {
         NotificationService().cancelNotification(0);
         _showAlarmScreen();
       });
     } else if (payload == 'water_snooze') {
-      if (!kIsWeb && Platform.isIOS) return;
-      // User bấm "Để sau" từ notification khi app chưa chạy
+      if (!kIsWeb && Platform.isIOS) {
+        // iOS: schedule snooze trực tiếp, không cần alarm screen
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          NotificationService().cancelNotification(0);
+          NotificationService().scheduleSnooze();
+        });
+        return;
+      }
+      // Android: xử lý snooze từ notification khi app chưa chạy
       WidgetsBinding.instance.addPostFrameCallback((_) {
         NotificationService().cancelNotification(0);
         NotificationService().scheduleSnooze();
@@ -474,11 +542,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (blocked) return;
       
       final pending = prefs.getBool('pending_water_dialog') ?? false;
-      if (pending && mounted && !( !kIsWeb && Platform.isIOS)) {
+      if (pending && mounted) {
         await prefs.setBool('pending_water_dialog', false);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           NotificationService().cancelNotification(0);
-          _showAlarmScreen();
+          if (!kIsWeb && Platform.isIOS) {
+            _showWaterReminderPopup();
+          } else {
+            _showAlarmScreen();
+          }
         });
       }
     }

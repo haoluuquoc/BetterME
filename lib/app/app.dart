@@ -13,11 +13,16 @@ class BetterMEApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Nếu app được launch từ notification alarm → vào thẳng WaterAlarmScreen
-    // Không qua splash/home để user thấy alarm ngay lập tức
+    // CHỈ áp dụng cho Android — iOS không dùng full-screen alarm
     String initialRoute = Routes.splash;
     if (!kIsWeb && NotificationService.pendingPayload == 'water_alarm_screen') {
-      initialRoute = Routes.waterAlarm;
-      NotificationService.pendingPayload = null;
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        initialRoute = Routes.waterAlarm;
+        NotificationService.pendingPayload = null;
+      } else {
+        // iOS: chuyển payload thành water_drink_tab để mở tab uống nước thay vì alarm screen
+        NotificationService.pendingPayload = 'water_drink_tab';
+      }
     } else if (!kIsWeb && NotificationService.pendingPayload == 'update_alarm_screen') {
       initialRoute = Routes.updateAlarm;
       NotificationService.pendingPayload = null;
