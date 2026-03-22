@@ -38,7 +38,7 @@ class HealthService {
   HealthService._();
   factory HealthService() => _instance;
 
-  static const Duration _realtimeReconcileInterval = Duration(seconds: 2);
+  static const Duration _realtimeReconcileInterval = Duration(seconds: 1);
   static const Duration _historySyncInterval = Duration(seconds: 20);
 
   static const MethodChannel _channel = MethodChannel('com.betterme.betterme/app');
@@ -58,6 +58,7 @@ class HealthService {
   Timer? _saveDebounceTimer;
   Timer? _reconcileTimer;
   DateTime? _lastHistoryPersistAt;
+  bool _isReconciling = false;
 
   bool _initialized = false;
 
@@ -73,6 +74,7 @@ class HealthService {
     _lastSavedSteps = null;
     _lastRawSteps = null;
     _lastHistoryPersistAt = null;
+    _isReconciling = false;
     _initialized = false; // Cho phép init() chạy lại
     _stepsController.add(0);
   }
@@ -492,7 +494,8 @@ class HealthService {
     _reconcileTimer?.cancel();
     _reconcileTimer =
         Timer.periodic(_realtimeReconcileInterval, (_) async {
-      if (!_initialized) return;
+      if (!_initialized || _isReconciling) return;
+      _isReconciling = true;
       try {
         await refreshStepsFromHealth(
           requestPermission: false,
@@ -500,6 +503,8 @@ class HealthService {
         );
       } catch (_) {
         // Keep pedometer realtime updates running even if health reconciliation fails.
+      } finally {
+        _isReconciling = false;
       }
     });
   }
@@ -560,7 +565,7 @@ class HealthService {
       return;
     }
     _saveDebounceTimer?.cancel();
-    _saveDebounceTimer = Timer(const Duration(seconds: 2), () async {
+    _saveDebounceTimer = Timer(const Duration(seconds: 1), () async {
       try {
         await saveTodayStepsToHistory();
       } catch (e) {

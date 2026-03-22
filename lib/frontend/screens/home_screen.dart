@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +16,8 @@ import 'update_alarm_screen.dart';
 import 'settings_screen.dart';
 import 'health_screen.dart';
 import '../widgets/water_glass_widget.dart';
+import '../widgets/glass_card.dart';
+import '../widgets/rain_background.dart';
 
 /// Home Screen - Màn hình chính
 class HomeScreen extends StatefulWidget {
@@ -573,67 +577,73 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: [
-          _buildTabIfVisited(0, HomeContent(onNavigate: _openTab)),
-          _buildTabIfVisited(1, WaterReminderScreen(key: _waterReminderKey)),
-          _buildTabIfVisited(2, const ExpenseScreen()),
-          _buildTabIfVisited(3, const HealthScreen()),
-          _buildTabIfVisited(4, const SettingsContent()),
-        ],
-      ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF0A1628),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF3A9BD5).withOpacity(0.15),
-              blurRadius: 20,
-              offset: const Offset(0, -4),
-            ),
+    return RainBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        extendBody: true,
+        body: IndexedStack(
+          index: _currentIndex,
+          children: [
+            _buildTabIfVisited(0, HomeContent(onNavigate: _openTab)),
+            _buildTabIfVisited(1, WaterReminderScreen(key: _waterReminderKey)),
+            _buildTabIfVisited(2, const ExpenseScreen()),
+            _buildTabIfVisited(3, const HealthScreen()),
+            _buildTabIfVisited(4, const SettingsContent()),
           ],
         ),
-        child: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: const Color(0xFF0A1628),
-          selectedItemColor: const Color(0xFF5BB5E8),
-          unselectedItemColor: const Color(0xFF64748B),
-          selectedFontSize: 12,
-          unselectedFontSize: 11,
-          elevation: 0,
-          onTap: (index) {
-            _openTab(index);
-          },
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.home_outlined),
-              activeIcon: Icon(Icons.home),
-              label: 'Trang chủ',
+        bottomNavigationBar: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 70),
+          child: Theme(
+            data: ThemeData(
+              navigationBarTheme: NavigationBarThemeData(
+                backgroundColor: Colors.white.withOpacity(0.03),
+                indicatorColor: Colors.white.withOpacity(0.2),
+                labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+                labelTextStyle: MaterialStateProperty.resolveWith((states) {
+                  if (states.contains(MaterialState.selected)) {
+                    return const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold);
+                  }
+                  return const TextStyle(color: Colors.white70, fontSize: 11);
+                }),
+              ),
             ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.water_drop_outlined),
-              activeIcon: Icon(Icons.water_drop),
-              label: 'Uống nước',
+            child: ClipRRect(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                child: NavigationBar(
+                  selectedIndex: _currentIndex,
+                  onDestinationSelected: _openTab,
+                  destinations: const [
+                    NavigationDestination(
+                      icon: Icon(Icons.home_outlined, color: Colors.white70, size: 24),
+                      selectedIcon: Icon(Icons.home, color: Colors.white, size: 24),
+                      label: 'Home',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.water_drop_outlined, color: Colors.white70, size: 24),
+                      selectedIcon: Icon(Icons.water_drop, color: Colors.white, size: 24),
+                      label: 'Water',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.account_balance_wallet_outlined, color: Colors.white70, size: 24),
+                      selectedIcon: Icon(Icons.account_balance_wallet, color: Colors.white, size: 24),
+                      label: 'Expense',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.favorite_outline, color: Colors.white70, size: 24),
+                      selectedIcon: Icon(Icons.favorite, color: Colors.white, size: 24),
+                      label: 'Health',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.settings_outlined, color: Colors.white70, size: 24),
+                      selectedIcon: Icon(Icons.settings, color: Colors.white, size: 24),
+                      label: 'Settings',
+                    ),
+                  ],
+                ),
+              ),
             ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.account_balance_wallet_outlined),
-              activeIcon: Icon(Icons.account_balance_wallet),
-              label: 'Chi tiêu',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.favorite_outline),
-              activeIcon: Icon(Icons.favorite),
-              label: 'Sức khỏe',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.settings_outlined),
-              activeIcon: Icon(Icons.settings),
-              label: 'Cài đặt',
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -763,11 +773,14 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('BetterME'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text('BetterME', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh, color: Colors.white),
             tooltip: 'Làm mới dữ liệu',
             onPressed: () {
               _loadData();
@@ -783,7 +796,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 90),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -832,23 +845,44 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
       emoji = '🌃';
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '$greeting $emoji',
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.bold,
+    return GlassCard(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  'Hi ${_profileName ?? "Bạn"},\nThế nào rồi?',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    height: 1.2,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: Text(emoji, style: const TextStyle(fontSize: 24)),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Chăm sóc sức khỏe & quản lý tài chính',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: AppColors.grey,
+          const SizedBox(height: 16),
+          Text(
+            '$greeting Chăm sóc sức khỏe & tài chính nhé!',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.white70,
+              fontSize: 16,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -889,88 +923,84 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
 
     return GestureDetector(
       onTap: () => widget.onNavigate?.call(3), // Sức khỏe tab
-      child: Card(
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.deepPurple.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.dashboard,
-                        color: Colors.deepPurple, size: 24),
+      child: GlassCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.deepPurpleAccent.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Text(
-                      'Tổng quan hôm nay',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  child: const Icon(Icons.dashboard,
+                      color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    'Tổng quan hôm nay',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
                   ),
-                  const Icon(Icons.chevron_right, color: AppColors.grey),
-                ],
-              ),
-              const SizedBox(height: 16),
-              // 2x2 Grid
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildDashboardItem(
-                      theme,
-                      Icons.directions_walk,
-                      '$_todaySteps',
-                      'Bước chân',
-                      Colors.deepOrange,
-                    ),
+                ),
+                const Icon(Icons.chevron_right, color: Colors.white70),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // 2x2 Grid
+            Row(
+              children: [
+                Expanded(
+                  child: _buildDashboardItem(
+                    theme,
+                    Icons.directions_walk,
+                    '$_todaySteps',
+                    'Bước chân',
+                    Colors.orangeAccent,
                   ),
-                  Expanded(
-                    child: _buildDashboardItem(
-                      theme,
-                      Icons.water_drop,
-                      '$glasses ly',
-                      'Nước uống',
-                      Colors.blue,
-                    ),
+                ),
+                Expanded(
+                  child: _buildDashboardItem(
+                    theme,
+                    Icons.water_drop,
+                    '$glasses ly',
+                    'Nước uống',
+                    Colors.lightBlueAccent,
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildDashboardItem(
-                      theme,
-                      Icons.bedtime,
-                      _todaySleep != null
-                          ? '${_todaySleep!.toStringAsFixed(1)}h'
-                          : '--',
-                      'Giấc ngủ',
-                      Colors.indigo,
-                    ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildDashboardItem(
+                    theme,
+                    Icons.bedtime,
+                    _todaySleep != null
+                        ? '${_todaySleep!.toStringAsFixed(1)}h'
+                        : '--',
+                    'Giấc ngủ',
+                    Colors.indigoAccent,
                   ),
-                  Expanded(
-                    child: _buildDashboardItem(
-                      theme,
-                      Icons.account_balance_wallet,
-                      _formatCurrency(balance < 0 ? -balance : balance),
-                      balance >= 0 ? 'Còn lại' : 'Âm',
-                      balance >= 0 ? Colors.green : Colors.red,
-                    ),
+                ),
+                Expanded(
+                  child: _buildDashboardItem(
+                    theme,
+                    Icons.account_balance_wallet,
+                    _formatCurrency(balance < 0 ? -balance : balance),
+                    balance >= 0 ? 'Còn lại' : 'Âm',
+                    balance >= 0 ? Colors.greenAccent : Colors.redAccent,
                   ),
-                ],
-              ),
-            ],
-          ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -985,24 +1015,24 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
   ) {
     return Row(
       children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(width: 8),
+        Icon(icon, color: color, size: 24),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 value,
-                style: theme.textTheme.titleSmall?.copyWith(
+                style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: color,
+                  color: Colors.white,
                 ),
               ),
               Text(
                 label,
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: AppColors.grey,
-                  fontSize: 11,
+                  color: Colors.white70,
+                  fontSize: 12,
                 ),
               ),
             ],
@@ -1027,69 +1057,67 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
       statusText = '$glasses/$goalGlasses ly - Còn ${remaining}ml nữa 💧';
     }
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.water_drop,
-                    color: Colors.blue,
-                    size: 28,
-                  ),
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.lightBlueAccent.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Nhắc nhở uống nước',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Mục tiêu: ${_waterGoalMl}ml / ngày',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AppColors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
+                child: const Icon(
+                  Icons.water_drop,
+                  color: Colors.lightBlueAccent,
+                  size: 28,
                 ),
-                const Icon(Icons.chevron_right, color: AppColors.grey),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 8,
-                backgroundColor: const Color(0xFFE0E0E0),
-                valueColor: const AlwaysStoppedAnimation(Colors.blue),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              statusText,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.grey,
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Nhắc nhở uống nước',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Mục tiêu: ${_waterGoalMl}ml / ngày',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              const Icon(Icons.chevron_right, color: Colors.white70),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: Colors.white.withOpacity(0.1),
+              valueColor: const AlwaysStoppedAnimation(Colors.lightBlueAccent),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            statusText,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Colors.white70,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1097,61 +1125,59 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
   Widget _buildExpenseSummaryCard(BuildContext context) {
     final balance = _totalIncome - _totalExpense;
     
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.account_balance_wallet,
-                    color: Colors.green,
-                    size: 28,
-                  ),
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.greenAccent.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Quản lý chi tiêu',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Tháng này',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AppColors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
+                child: const Icon(
+                  Icons.account_balance_wallet,
+                  color: Colors.greenAccent,
+                  size: 28,
                 ),
-                const Icon(Icons.chevron_right, color: AppColors.grey),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildExpenseItem(context, 'Thu nhập', _formatCurrency(_totalIncome), Colors.green),
-                _buildExpenseItem(context, 'Chi tiêu', _formatCurrency(_totalExpense), Colors.red),
-                _buildExpenseItem(context, 'Còn lại', _formatCurrency(balance), Colors.blue),
-              ],
-            ),
-          ],
-        ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Quản lý chi tiêu',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Tháng này',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Colors.white70),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildExpenseItem(context, 'Thu nhập', _formatCurrency(_totalIncome), Colors.greenAccent),
+              _buildExpenseItem(context, 'Chi tiêu', _formatCurrency(_totalExpense), Colors.redAccent),
+              _buildExpenseItem(context, 'Còn lại', _formatCurrency(balance), Colors.lightBlueAccent),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1162,7 +1188,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
         Text(
           label,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: AppColors.grey,
+            color: Colors.white70,
           ),
         ),
         const SizedBox(height: 4),
