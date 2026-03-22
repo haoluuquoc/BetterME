@@ -23,7 +23,7 @@ class FirestoreService {
   // ==================== THÔNG TIN TÀI KHOẢN ====================
 
   /// Lưu email + provider vào Firestore để dễ quản lý
-  Future<void> saveUserMeta() async {
+  Future<void> saveUserMeta({String? username}) async {
     final doc = _userDoc;
     if (doc == null) return;
     try {
@@ -39,12 +39,20 @@ class FirestoreService {
         }
       }
       
-      await doc.set({
+      final meta = <String, dynamic>{
         'email': user.email ?? '',
         'displayName': user.displayName ?? '',
         'provider': provider,
         'lastLogin': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      };
+
+      final normalizedUsername = username?.trim();
+      if (normalizedUsername != null && normalizedUsername.isNotEmpty) {
+        meta['username'] = normalizedUsername;
+        meta['usernameLower'] = normalizedUsername.toLowerCase();
+      }
+
+      await doc.set(meta, SetOptions(merge: true));
     } catch (e) {
       debugPrint('Firestore saveUserMeta error: $e');
     }

@@ -44,6 +44,7 @@ class AuthService {
     required String email,
     required String password,
     String? displayName,
+    String? username,
   }) async {
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
@@ -58,7 +59,7 @@ class AuthService {
       }
 
       await _handleUserSwitch(credential.user);
-      _startPostLoginTasks();
+      _startPostLoginTasks(username: username);
       return AuthResult.success(user: _auth.currentUser);
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(message: _getErrorMessage(e.code));
@@ -87,13 +88,13 @@ class AuthService {
     }
   }
 
-  void _startPostLoginTasks() {
-    unawaited(_runPostLoginTasks());
+  void _startPostLoginTasks({String? username}) {
+    unawaited(_runPostLoginTasks(username: username));
   }
 
-  Future<void> _runPostLoginTasks() async {
+  Future<void> _runPostLoginTasks({String? username}) async {
     await _runWithTimeout(
-      FirestoreService().saveUserMeta(),
+      FirestoreService().saveUserMeta(username: username),
       timeout: _postLoginMetaTimeout,
       label: 'saveUserMeta',
     );

@@ -14,6 +14,7 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen>
     with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
+  final _usernameController = TextEditingController();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -85,6 +86,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
   @override
   void dispose() {
+    _usernameController.dispose();
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -104,6 +106,7 @@ class _RegisterScreenState extends State<RegisterScreen>
       email: _emailController.text.trim(),
       password: _passwordController.text,
       displayName: _nameController.text.trim(),
+      username: _usernameController.text.trim(),
     );
 
     setState(() => _isLoading = false);
@@ -362,6 +365,31 @@ class _RegisterScreenState extends State<RegisterScreen>
         key: _formKey,
         child: Column(
           children: [
+            // Username field
+            _buildTextField(
+              controller: _usernameController,
+              label: 'Tên tài khoản',
+              hint: 'vd: minhtran_01',
+              icon: Icons.alternate_email_rounded,
+              validator: (value) {
+                final username = value?.trim() ?? '';
+                if (username.isEmpty) {
+                  return 'Vui lòng nhập tên tài khoản';
+                }
+                if (username.length < 4) {
+                  return 'Tên tài khoản tối thiểu 4 ký tự';
+                }
+                if (username.length > 24) {
+                  return 'Tên tài khoản tối đa 24 ký tự';
+                }
+                if (!RegExp(r'^[a-zA-Z0-9_.]+$').hasMatch(username)) {
+                  return 'Chỉ gồm chữ, số, dấu . hoặc _';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+
             // Name field
             _buildTextField(
               controller: _nameController,

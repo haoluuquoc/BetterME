@@ -11,13 +11,17 @@ import '../../app/routes/app_routes.dart';
 import '../../services/notification_service.dart';
 import '../../services/firestore_service.dart';
 import '../../services/health_service.dart';
+import '../../services/auth_service.dart';
 import 'water_alarm_screen.dart';
 import 'update_alarm_screen.dart';
 import 'settings_screen.dart';
 import 'health_screen.dart';
+import 'expense_screen.dart';
 import '../widgets/water_glass_widget.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/rain_background.dart';
+import '../widgets/coin_background.dart';
+import '../widgets/heartbeat_background.dart';
 
 /// Home Screen - Màn hình chính
 class HomeScreen extends StatefulWidget {
@@ -574,11 +578,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return child;
     }
     return const SizedBox.shrink();
+  Widget _buildDynamicBackground(Widget child) {
+    switch (_currentIndex) {
+      case 2: // Chi tiêu
+        return CoinBackground(child: child);
+      case 3: // Sức khỏe
+        return HeartbeatBackground(child: child);
+      case 0:
+      case 1:
+      case 4:
+      default:
+        return RainBackground(child: child);
+    }
   }
+
   @override
   Widget build(BuildContext context) {
-    return RainBackground(
-      child: Scaffold(
+    return _buildDynamicBackground(
+      Scaffold(
         backgroundColor: Colors.transparent,
         extendBody: true,
         body: IndexedStack(
@@ -665,6 +682,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
   int _waterGoalMl = 2000;
   double _totalIncome = 0;
   double _totalExpense = 0;
+  String _profileName = 'bạn';
 
   // Health data
   int _todaySteps = 0;
@@ -745,6 +763,9 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
         }
       }
     }
+    
+    final user = AuthService().currentUser;
+    final pName = user?.displayName ?? prefs.getString('profile_name') ?? 'bạn';
 
     if (mounted) {
       setState(() {
@@ -752,6 +773,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
         _waterGoalMl = goalMl;
         _totalIncome = income;
         _totalExpense = expense;
+        _profileName = pName;
       });
     }
   }
@@ -855,7 +877,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
             children: [
               Expanded(
                 child: Text(
-                  'Hi ${_profileName ?? "Bạn"},\nThế nào rồi?',
+                  'Hi $_profileName,\nThế nào rồi?',
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
