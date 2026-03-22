@@ -1,3 +1,4 @@
+﻿import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -7,9 +8,13 @@ import 'package:flutter/foundation.dart';
 import 'firestore_service.dart';
 import 'health_service.dart';
 
-/// Authentication Service - Quản lý đăng nhập/đăng ký với Firebase
+/// Authentication Service - Quáº£n lÃ½ Ä‘Äƒng nháº­p/Ä‘Äƒng kÃ½ vá»›i Firebase
 class AuthService {
-  /// Kiểm tra Firebase đã được khởi tạo chưa
+  static const Duration _postLoginMetaTimeout = Duration(seconds: 2);
+  static const Duration _postLoginHealthTimeout = Duration(seconds: 4);
+  static const Duration _preLogoutSyncTimeout = Duration(seconds: 5);
+  static const Duration _googleSignOutTimeout = Duration(seconds: 2);
+  /// Kiá»ƒm tra Firebase Ä‘Ã£ Ä‘Æ°á»£c khá»Ÿi táº¡o chÆ°a
   bool get _isFirebaseReady {
     try {
       Firebase.app();
@@ -23,18 +28,18 @@ class AuthService {
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final LocalAuthentication _localAuth = LocalAuthentication();
 
-  /// Stream theo dõi trạng thái đăng nhập
+  /// Stream theo dÃµi tráº¡ng thÃ¡i Ä‘Äƒng nháº­p
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
-  /// Người dùng hiện tại
+  /// NgÆ°á»i dÃ¹ng hiá»‡n táº¡i
   User? get currentUser => _isFirebaseReady ? _auth.currentUser : null;
 
-  /// Kiểm tra đã đăng nhập chưa
+  /// Kiá»ƒm tra Ä‘Ã£ Ä‘Äƒng nháº­p chÆ°a
   bool get isLoggedIn => _isFirebaseReady && _auth.currentUser != null;
 
   // ==================== EMAIL/PASSWORD ====================
 
-  /// Đăng ký bằng email và mật khẩu
+  /// ÄÄƒng kÃ½ báº±ng email vÃ  máº­t kháº©u
   Future<AuthResult> registerWithEmail({
     required String email,
     required String password,
@@ -46,23 +51,23 @@ class AuthService {
         password: password,
       );
 
-      // Cập nhật tên hiển thị nếu có
+      // Cáº­p nháº­t tÃªn hiá»ƒn thá»‹ náº¿u cÃ³
       if (displayName != null && credential.user != null) {
         await credential.user!.updateDisplayName(displayName);
         await credential.user!.reload();
       }
 
       await _handleUserSwitch(credential.user);
-      await _saveUserMetaToFirestore();
+      _startPostLoginTasks();
       return AuthResult.success(user: _auth.currentUser);
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(message: _getErrorMessage(e.code));
     } catch (e) {
-      return AuthResult.failure(message: 'Đã xảy ra lỗi: $e');
+      return AuthResult.failure(message: 'ÄÃ£ xáº£y ra lá»—i: $e');
     }
   }
 
-  /// Đăng nhập bằng email và mật khẩu
+  /// ÄÄƒng nháº­p báº±ng email vÃ  máº­t kháº©u
   Future<AuthResult> loginWithEmail({
     required String email,
     required String password,
@@ -73,40 +78,55 @@ class AuthService {
         password: password,
       );
       await _handleUserSwitch(credential.user);
-      await _saveUserMetaToFirestore();
+      _startPostLoginTasks();
       return AuthResult.success(user: credential.user);
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(message: _getErrorMessage(e.code));
     } catch (e) {
-      return AuthResult.failure(message: 'Đã xảy ra lỗi: $e');
+      return AuthResult.failure(message: 'ÄÃ£ xáº£y ra lá»—i: $e');
     }
   }
 
-  /// Lưu thông tin user vào Firestore sau khi đăng nhập thành công
-  Future<void> _saveUserMetaToFirestore() async {
-    try {
-      await FirestoreService().saveUserMeta();
-    } catch (e) {
-      // Không block login nếu Firestore lỗi
-    }
+  void _startPostLoginTasks() {
+    unawaited(_runPostLoginTasks());
+  }
 
-    // Tự động kéo dữ liệu sức khỏe từ Firestore ngay sau khi đăng nhập
+  Future<void> _runPostLoginTasks() async {
+    await _runWithTimeout(
+      FirestoreService().saveUserMeta(),
+      timeout: _postLoginMetaTimeout,
+      label: 'saveUserMeta',
+    );
+    await _runWithTimeout(
+      HealthService().init(),
+      timeout: _postLoginHealthTimeout,
+      label: 'healthInit',
+    );
+  }
+
+  Future<void> _runWithTimeout(
+    Future<void> task, {
+    required Duration timeout,
+    required String label,
+  }) async {
     try {
-      await HealthService().init();
+      await task.timeout(timeout);
+    } on TimeoutException {
+      debugPrint('$label timed out after ${timeout.inSeconds}s');
     } catch (e) {
-      debugPrint('Sync health upon login error: $e');
+      debugPrint('$label error: $e');
     }
   }
 
   // ==================== GOOGLE SIGN IN ======================================
 
-  /// Đăng nhập bằng Google
+  /// ÄÄƒng nháº­p báº±ng Google
   Future<AuthResult> signInWithGoogle() async {
     try {
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
 
       if (googleUser == null) {
-        return AuthResult.failure(message: 'Đăng nhập Google bị hủy');
+        return AuthResult.failure(message: 'ÄÄƒng nháº­p Google bá»‹ há»§y');
       }
 
       final GoogleSignInAuthentication googleAuth =
@@ -119,18 +139,18 @@ class AuthService {
 
       final userCredential = await _auth.signInWithCredential(credential);
       await _handleUserSwitch(userCredential.user);
-      await _saveUserMetaToFirestore();
+      _startPostLoginTasks();
       return AuthResult.success(user: userCredential.user);
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(message: _getErrorMessage(e.code));
     } catch (e) {
-      return AuthResult.failure(message: 'Lỗi đăng nhập Google: $e');
+      return AuthResult.failure(message: 'Lá»—i Ä‘Äƒng nháº­p Google: $e');
     }
   }
 
   // ==================== APPLE SIGN IN ====================
 
-  /// Đăng nhập bằng Apple
+  /// ÄÄƒng nháº­p báº±ng Apple
   Future<AuthResult> signInWithApple() async {
     try {
       final appleProvider = AppleAuthProvider();
@@ -139,45 +159,45 @@ class AuthService {
 
       final userCredential = await _auth.signInWithProvider(appleProvider);
       await _handleUserSwitch(userCredential.user);
-      await _saveUserMetaToFirestore();
+      _startPostLoginTasks();
       return AuthResult.success(user: userCredential.user);
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(message: _getErrorMessage(e.code));
     } catch (e) {
-      return AuthResult.failure(message: 'Lỗi đăng nhập Apple: $e');
+      return AuthResult.failure(message: 'Lá»—i Ä‘Äƒng nháº­p Apple: $e');
     }
   }
 
   // ==================== FORGOT PASSWORD ====================
 
-  /// Gửi email đặt lại mật khẩu
+  /// Gá»­i email Ä‘áº·t láº¡i máº­t kháº©u
   Future<AuthResult> sendPasswordResetEmail(String email) async {
     try {
       await _auth.sendPasswordResetEmail(email: email);
       return AuthResult.success(
-        message: 'Email đặt lại mật khẩu đã được gửi đến $email',
+        message: 'Email Ä‘áº·t láº¡i máº­t kháº©u Ä‘Ã£ Ä‘Æ°á»£c gá»­i Ä‘áº¿n $email',
       );
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(message: _getErrorMessage(e.code));
     } catch (e) {
-      return AuthResult.failure(message: 'Đã xảy ra lỗi: $e');
+      return AuthResult.failure(message: 'ÄÃ£ xáº£y ra lá»—i: $e');
     }
   }
 
   // ==================== CHANGE PASSWORD ====================
 
-  /// Đổi mật khẩu
+  /// Äá»•i máº­t kháº©u
   Future<void> changePassword(String currentPassword, String newPassword) async {
     final user = _auth.currentUser;
     if (user == null) {
-      throw Exception('Chưa đăng nhập');
+      throw Exception('ChÆ°a Ä‘Äƒng nháº­p');
     }
     
     if (user.email == null) {
-      throw Exception('Tài khoản không có email (đăng nhập bằng Google/Apple)');
+      throw Exception('TÃ i khoáº£n khÃ´ng cÃ³ email (Ä‘Äƒng nháº­p báº±ng Google/Apple)');
     }
     
-    // Re-authenticate với mật khẩu hiện tại
+    // Re-authenticate vá»›i máº­t kháº©u hiá»‡n táº¡i
     final credential = EmailAuthProvider.credential(
       email: user.email!,
       password: currentPassword,
@@ -187,12 +207,12 @@ class AuthService {
       await user.reauthenticateWithCredential(credential);
     } on FirebaseAuthException catch (e) {
       if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
-        throw Exception('Mật khẩu hiện tại không đúng');
+        throw Exception('Máº­t kháº©u hiá»‡n táº¡i khÃ´ng Ä‘Ãºng');
       }
       throw Exception(_getErrorMessage(e.code));
     }
     
-    // Đổi mật khẩu
+    // Äá»•i máº­t kháº©u
     try {
       await user.updatePassword(newPassword);
     } on FirebaseAuthException catch (e) {
@@ -216,7 +236,7 @@ class AuthService {
       'sleep_history', 'weight_history', 'user_height_cm',
       // Birthdays
       'birthdays',
-      // Transactions (chi tiêu)
+      // Transactions (chi tiÃªu)
       'expense_transactions',
       // Profile
       'profile_name', 'profile_dob', 'profile_gender', 'profile_phone',
@@ -249,32 +269,40 @@ class AuthService {
     await prefs.setString('last_uid', user.uid);
   }
 
-  /// Đăng xuất — giữ cache local để user đăng nhập lại không mất dữ liệu.
-  /// Dữ liệu sẽ được xóa khi đăng nhập bằng tài khoản khác.
+  /// ÄÄƒng xuáº¥t â€” giá»¯ cache local Ä‘á»ƒ user Ä‘Äƒng nháº­p láº¡i khÃ´ng máº¥t dá»¯ liá»‡u.
+  /// Dá»¯ liá»‡u sáº½ Ä‘Æ°á»£c xÃ³a khi Ä‘Äƒng nháº­p báº±ng tÃ i khoáº£n khÃ¡c.
   Future<void> signOut() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // Đánh dấu đã đăng xuất → không auto biometric login
+    // ÄÃ¡nh dáº¥u Ä‘Ã£ Ä‘Äƒng xuáº¥t â†’ khÃ´ng auto biometric login
     await prefs.setBool('just_logged_out', true);
 
     // Flush steps to Firestore before signing out (prevents loss when switching accounts)
-    try {
-      await HealthService().saveTodayStepsToHistory();
-      await HealthService().syncLocalStepsToFirestore();
-    } catch (e) {
-      debugPrint('Pre-logout steps sync error: $e');
-    }
+    await _runWithTimeout(
+      _flushHealthBeforeLogout(),
+      timeout: _preLogoutSyncTimeout,
+      label: 'preLogoutSync',
+    );
 
-    // Reset HealthService singleton để re-sync Firestore cho user mới
+    // Reset HealthService singleton Ä‘á»ƒ re-sync Firestore cho user má»›i
     HealthService().resetForLogout();
 
-    await _googleSignIn.signOut();
+    await _runWithTimeout(
+      _googleSignIn.signOut(),
+      timeout: _googleSignOutTimeout,
+      label: 'googleSignOut',
+    );
     await _auth.signOut();
+  }
+
+  Future<void> _flushHealthBeforeLogout() async {
+    await HealthService().saveTodayStepsToHistory();
+    await HealthService().syncLocalStepsToFirestore();
   }
 
   // ==================== BIOMETRIC ====================
 
-  /// Kiểm tra thiết bị có hỗ trợ sinh trắc học không
+  /// Kiá»ƒm tra thiáº¿t bá»‹ cÃ³ há»— trá»£ sinh tráº¯c há»c khÃ´ng
   Future<bool> isBiometricAvailable() async {
     try {
       final canCheck = await _localAuth.canCheckBiometrics;
@@ -285,7 +313,7 @@ class AuthService {
     }
   }
 
-  /// Lấy danh sách loại sinh trắc học có sẵn
+  /// Láº¥y danh sÃ¡ch loáº¡i sinh tráº¯c há»c cÃ³ sáºµn
   Future<List<BiometricType>> getAvailableBiometrics() async {
     try {
       return await _localAuth.getAvailableBiometrics();
@@ -294,9 +322,9 @@ class AuthService {
     }
   }
 
-  /// Xác thực bằng sinh trắc học (Face ID / Vân tay / PIN)
-  /// Trên iPhone/Samsung/Pixel: quét mặt/vân tay trước, PIN nếu fail
-  /// Trên Vivo/Oppo (face unlock riêng): hiện nhập PIN/pattern
+  /// XÃ¡c thá»±c báº±ng sinh tráº¯c há»c (Face ID / VÃ¢n tay / PIN)
+  /// TrÃªn iPhone/Samsung/Pixel: quÃ©t máº·t/vÃ¢n tay trÆ°á»›c, PIN náº¿u fail
+  /// TrÃªn Vivo/Oppo (face unlock riÃªng): hiá»‡n nháº­p PIN/pattern
   Future<bool> authenticateWithBiometric() async {
     try {
       final biometrics = await _localAuth.getAvailableBiometrics();
@@ -304,18 +332,18 @@ class AuthService {
       
       return await _localAuth.authenticate(
         localizedReason: hasBiometric 
-            ? 'Quét khuôn mặt hoặc vân tay để đăng nhập BetterME'
-            : 'Nhập mã PIN để đăng nhập BetterME',
+            ? 'QuÃ©t khuÃ´n máº·t hoáº·c vÃ¢n tay Ä‘á»ƒ Ä‘Äƒng nháº­p BetterME'
+            : 'Nháº­p mÃ£ PIN Ä‘á»ƒ Ä‘Äƒng nháº­p BetterME',
         options: AuthenticationOptions(
           stickyAuth: true,
           biometricOnly: hasBiometric,
         ),
       );
     } catch (e) {
-      // Fallback nếu biometricOnly gây lỗi
+      // Fallback náº¿u biometricOnly gÃ¢y lá»—i
       try {
         return await _localAuth.authenticate(
-          localizedReason: 'Nhập mã PIN để đăng nhập BetterME',
+          localizedReason: 'Nháº­p mÃ£ PIN Ä‘á»ƒ Ä‘Äƒng nháº­p BetterME',
           options: const AuthenticationOptions(
             stickyAuth: true,
             biometricOnly: false,
@@ -327,7 +355,7 @@ class AuthService {
     }
   }
 
-  /// Bật/tắt đăng nhập sinh trắc học + đồng bộ Firestore
+  /// Báº­t/táº¯t Ä‘Äƒng nháº­p sinh tráº¯c há»c + Ä‘á»“ng bá»™ Firestore
   Future<void> setBiometricEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('biometric_enabled', enabled);
@@ -338,7 +366,7 @@ class AuthService {
       final user = _auth.currentUser!;
       await prefs.setString('biometric_uid', user.uid);
       
-      // Lưu đăng ký thiết bị lên Firestore (banking-app style)
+      // LÆ°u Ä‘Äƒng kÃ½ thiáº¿t bá»‹ lÃªn Firestore (banking-app style)
       String provider = 'password';
       for (final info in user.providerData) {
         if (info.providerId != 'firebase') {
@@ -351,7 +379,7 @@ class AuthService {
         provider: provider,
       );
       
-      // Lưu credentials lên Firestore để khôi phục sau reinstall
+      // LÆ°u credentials lÃªn Firestore Ä‘á»ƒ khÃ´i phá»¥c sau reinstall
       final biometricEmail = prefs.getString('biometric_saved_email') ?? prefs.getString('saved_email');
       final biometricPassword = prefs.getString('biometric_saved_password') ?? prefs.getString('saved_password');
       if (biometricEmail != null && biometricPassword != null) {
@@ -366,23 +394,23 @@ class AuthService {
       await prefs.remove('biometric_uid');
       await prefs.remove('biometric_saved_email');
       await prefs.remove('biometric_saved_password');
-      // Xóa đăng ký trên Firestore
+      // XÃ³a Ä‘Äƒng kÃ½ trÃªn Firestore
       await firestoreService.removeBiometricRegistration();
       await firestoreService.removeBiometricCredentials();
     }
   }
 
-  /// Kiểm tra đăng nhập sinh trắc học đã bật chưa (local + cloud fallback)
+  /// Kiá»ƒm tra Ä‘Äƒng nháº­p sinh tráº¯c há»c Ä‘Ã£ báº­t chÆ°a (local + cloud fallback)
   Future<bool> isBiometricEnabled() async {
     final prefs = await SharedPreferences.getInstance();
     final localEnabled = prefs.getBool('biometric_enabled') ?? false;
     if (localEnabled) return true;
     
-    // Fallback: kiểm tra Firestore nếu local data bị mất (reinstall)
+    // Fallback: kiá»ƒm tra Firestore náº¿u local data bá»‹ máº¥t (reinstall)
     if (_auth.currentUser != null) {
       final biometric = await FirestoreService().loadBiometricRegistration();
       if (biometric != null && biometric['enabled'] == true) {
-        // Khôi phục local settings từ Firestore
+        // KhÃ´i phá»¥c local settings tá»« Firestore
         await _restoreBiometricFromCloud();
         return true;
       }
@@ -390,16 +418,16 @@ class AuthService {
     return false;
   }
 
-  /// Lấy email đã liên kết với sinh trắc học
+  /// Láº¥y email Ä‘Ã£ liÃªn káº¿t vá»›i sinh tráº¯c há»c
   Future<String?> getBiometricLinkedEmail() async {
-    // Ưu tiên kiểm tra local
+    // Æ¯u tiÃªn kiá»ƒm tra local
     final prefs = await SharedPreferences.getInstance();
     final biometricUid = prefs.getString('biometric_uid');
     if (biometricUid != null && _auth.currentUser?.uid == biometricUid) {
       return _auth.currentUser?.email;
     }
     
-    // Fallback: kiểm tra Firestore
+    // Fallback: kiá»ƒm tra Firestore
     if (_auth.currentUser != null) {
       final biometric = await FirestoreService().loadBiometricRegistration();
       if (biometric != null) {
@@ -409,7 +437,7 @@ class AuthService {
     return null;
   }
 
-  /// Khôi phục biometric settings từ Firestore (sau reinstall)
+  /// KhÃ´i phá»¥c biometric settings tá»« Firestore (sau reinstall)
   Future<bool> _restoreBiometricFromCloud() async {
     try {
       final firestoreService = FirestoreService();
@@ -420,7 +448,7 @@ class AuthService {
       await prefs.setBool('biometric_enabled', true);
       await prefs.setString('biometric_uid', _auth.currentUser!.uid);
       
-      // Khôi phục credentials từ Firestore
+      // KhÃ´i phá»¥c credentials tá»« Firestore
       final credentials = await firestoreService.loadBiometricCredentials();
       if (credentials != null) {
         await prefs.setString('biometric_saved_email', credentials['email']!);
@@ -433,13 +461,13 @@ class AuthService {
     }
   }
 
-  /// Đăng nhập bằng sinh trắc học (dùng lại session Firebase trước đó)
+  /// ÄÄƒng nháº­p báº±ng sinh tráº¯c há»c (dÃ¹ng láº¡i session Firebase trÆ°á»›c Ä‘Ã³)
   Future<AuthResult> loginWithBiometric() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       var biometricUid = prefs.getString('biometric_uid');
       
-      // Nếu local data bị mất, thử khôi phục từ Firestore
+      // Náº¿u local data bá»‹ máº¥t, thá»­ khÃ´i phá»¥c tá»« Firestore
       if (biometricUid == null && _auth.currentUser != null) {
         final restored = await _restoreBiometricFromCloud();
         if (restored) {
@@ -447,37 +475,37 @@ class AuthService {
         }
       }
       
-      // Kiểm tra có tài khoản đã lưu không
+      // Kiá»ƒm tra cÃ³ tÃ i khoáº£n Ä‘Ã£ lÆ°u khÃ´ng
       if (biometricUid == null) {
         return AuthResult.failure(
-          message: 'Chưa thiết lập đăng nhập sinh trắc học.\nVào Cài đặt → Bật Face ID / Vân tay sau khi đăng nhập.',
+          message: 'ChÆ°a thiáº¿t láº­p Ä‘Äƒng nháº­p sinh tráº¯c há»c.\nVÃ o CÃ i Ä‘áº·t â†’ Báº­t Face ID / VÃ¢n tay sau khi Ä‘Äƒng nháº­p.',
         );
       }
       
-      // Xác thực sinh trắc học (Face/vân tay/PIN)
+      // XÃ¡c thá»±c sinh tráº¯c há»c (Face/vÃ¢n tay/PIN)
       final authenticated = await authenticateWithBiometric();
       if (!authenticated) {
-        return AuthResult.failure(message: 'Xác thực sinh trắc học thất bại');
+        return AuthResult.failure(message: 'XÃ¡c thá»±c sinh tráº¯c há»c tháº¥t báº¡i');
       }
       
-      // Kiểm tra Firebase còn session không
+      // Kiá»ƒm tra Firebase cÃ²n session khÃ´ng
       final currentUser = _auth.currentUser;
       if (currentUser != null && currentUser.uid == biometricUid) {
-        await _saveUserMetaToFirestore();
+        _startPostLoginTasks();
         return AuthResult.success(user: currentUser);
       }
       
-      // Nếu không còn session, dùng biometric credentials (local)
+      // Náº¿u khÃ´ng cÃ²n session, dÃ¹ng biometric credentials (local)
       var savedEmail = prefs.getString('biometric_saved_email') ?? prefs.getString('saved_email');
       var savedPassword = prefs.getString('biometric_saved_password') ?? prefs.getString('saved_password');
       
-      // Fallback: lấy credentials từ Firestore
+      // Fallback: láº¥y credentials tá»« Firestore
       if (savedEmail == null || savedPassword == null) {
         final credentials = await FirestoreService().loadBiometricCredentials();
         if (credentials != null) {
           savedEmail = credentials['email'];
           savedPassword = credentials['password'];
-          // Lưu lại local cho biometric
+          // LÆ°u láº¡i local cho biometric
           if (savedEmail != null) await prefs.setString('biometric_saved_email', savedEmail);
           if (savedPassword != null) await prefs.setString('biometric_saved_password', savedPassword);
         }
@@ -488,14 +516,14 @@ class AuthService {
       }
       
       return AuthResult.failure(
-        message: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại bằng email.',
+        message: 'PhiÃªn Ä‘Äƒng nháº­p Ä‘Ã£ háº¿t háº¡n. Vui lÃ²ng Ä‘Äƒng nháº­p láº¡i báº±ng email.',
       );
     } catch (e) {
-      return AuthResult.failure(message: 'Lỗi đăng nhập sinh trắc học: $e');
+      return AuthResult.failure(message: 'Lá»—i Ä‘Äƒng nháº­p sinh tráº¯c há»c: $e');
     }
   }
 
-  /// Kiểm tra user hiện tại đăng nhập bằng provider nào
+  /// Kiá»ƒm tra user hiá»‡n táº¡i Ä‘Äƒng nháº­p báº±ng provider nÃ o
   String? get currentProvider {
     final user = _auth.currentUser;
     if (user == null) return null;
@@ -507,43 +535,43 @@ class AuthService {
     return 'password';
   }
 
-  /// Kiểm tra user có phải Email/Password không
+  /// Kiá»ƒm tra user cÃ³ pháº£i Email/Password khÃ´ng
   bool get isEmailPasswordUser {
     return currentProvider == 'password';
   }
 
   // ==================== HELPER ====================
 
-  /// Chuyển mã lỗi Firebase thành tiếng Việt
+  /// Chuyá»ƒn mÃ£ lá»—i Firebase thÃ nh tiáº¿ng Viá»‡t
   String _getErrorMessage(String code) {
     switch (code) {
       case 'email-already-in-use':
-        return 'Email này đã được sử dụng';
+        return 'Email nÃ y Ä‘Ã£ Ä‘Æ°á»£c sá»­ dá»¥ng';
       case 'invalid-email':
-        return 'Email không hợp lệ';
+        return 'Email khÃ´ng há»£p lá»‡';
       case 'operation-not-allowed':
-        return 'Phương thức đăng nhập chưa được bật';
+        return 'PhÆ°Æ¡ng thá»©c Ä‘Äƒng nháº­p chÆ°a Ä‘Æ°á»£c báº­t';
       case 'weak-password':
-        return 'Mật khẩu quá yếu (cần ít nhất 6 ký tự)';
+        return 'Máº­t kháº©u quÃ¡ yáº¿u (cáº§n Ã­t nháº¥t 6 kÃ½ tá»±)';
       case 'user-disabled':
-        return 'Tài khoản đã bị vô hiệu hóa';
+        return 'TÃ i khoáº£n Ä‘Ã£ bá»‹ vÃ´ hiá»‡u hÃ³a';
       case 'user-not-found':
-        return 'Không tìm thấy tài khoản với email này';
+        return 'KhÃ´ng tÃ¬m tháº¥y tÃ i khoáº£n vá»›i email nÃ y';
       case 'wrong-password':
-        return 'Mật khẩu không đúng';
+        return 'Máº­t kháº©u khÃ´ng Ä‘Ãºng';
       case 'invalid-credential':
-        return 'Email hoặc mật khẩu không đúng';
+        return 'Email hoáº·c máº­t kháº©u khÃ´ng Ä‘Ãºng';
       case 'too-many-requests':
-        return 'Quá nhiều lần thử. Vui lòng đợi một lát';
+        return 'QuÃ¡ nhiá»u láº§n thá»­. Vui lÃ²ng Ä‘á»£i má»™t lÃ¡t';
       case 'network-request-failed':
-        return 'Lỗi kết nối mạng';
+        return 'Lá»—i káº¿t ná»‘i máº¡ng';
       default:
-        return 'Đã xảy ra lỗi ($code)';
+        return 'ÄÃ£ xáº£y ra lá»—i ($code)';
     }
   }
 }
 
-/// Kết quả xác thực
+/// Káº¿t quáº£ xÃ¡c thá»±c
 class AuthResult {
   final bool isSuccess;
   final User? user;

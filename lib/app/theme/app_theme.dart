@@ -147,10 +147,10 @@ class AppTheme {
 
   /// Tạo Dark Theme với màu tùy chọn
   static ThemeData darkThemeWithColor(AppColorTheme colorTheme) {
-    const darkBackground = Color(0xFF121212);
-    const darkSurface = Color(0xFF1E1E1E);
-    const darkOnBackground = Color(0xFFE0E0E0);
-    const darkOnSurface = Color(0xFFB0B0B0);
+    const darkBackground = Color(0xFF0A1628); // Watercolor dark background
+    const darkSurface = Color(0xFF14253A); // Slightly lighter for cards/surfaces
+    const darkOnBackground = Color(0xFFE2E8F0);
+    const darkOnSurface = Color(0xFF94A3B8);
     
     return ThemeData(
       useMaterial3: true,

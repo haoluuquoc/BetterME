@@ -1,37 +1,37 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Các màu có sẵn để chọn (giống hình - 3 chấm màu)
+/// Các màu có sẵn - Premium watercolor palette
 class ThemeColors {
-  // Màu Đỏ (Red theme)
-  static const Color red = Color(0xFFE53935);
-  static const Color redDark = Color(0xFFB71C1C);
-  static const Color redLight = Color(0xFFEF5350);
+  // Ocean Blue (default - watercolor blue)
+  static const Color oceanBlue = Color(0xFF3A9BD5);
+  static const Color oceanBlueDark = Color(0xFF1A6FA0);
+  static const Color oceanBlueLight = Color(0xFF5BB5E8);
   
-  // Màu Xanh lá (Green theme)
-  static const Color green = Color(0xFF43A047);
-  static const Color greenDark = Color(0xFF1B5E20);
-  static const Color greenLight = Color(0xFF66BB6A);
+  // Coral Sunset
+  static const Color coral = Color(0xFFFF6B6B);
+  static const Color coralDark = Color(0xFFD94848);
+  static const Color coralLight = Color(0xFFFF8E8E);
   
-  // Màu Xanh dương (Blue theme)
-  static const Color blue = Color(0xFF1E88E5);
-  static const Color blueDark = Color(0xFF0D47A1);
-  static const Color blueLight = Color(0xFF42A5F5);
+  // Emerald Green 
+  static const Color emerald = Color(0xFF00B894);
+  static const Color emeraldDark = Color(0xFF00896E);
+  static const Color emeraldLight = Color(0xFF55EEBB);
   
-  // Màu Tím (Purple theme - giống hình gốc)
-  static const Color purple = Color(0xFF7B1FA2);
-  static const Color purpleDark = Color(0xFF4A148C);
-  static const Color purpleLight = Color(0xFFAB47BC);
+  // Royal Purple
+  static const Color royal = Color(0xFF6C5CE7);
+  static const Color royalDark = Color(0xFF4834D4);
+  static const Color royalLight = Color(0xFFA29BFE);
   
-  // Màu Cam (Orange theme)
-  static const Color orange = Color(0xFFFF7043);
-  static const Color orangeDark = Color(0xFFE64A19);
-  static const Color orangeLight = Color(0xFFFF8A65);
+  // Sunset Orange
+  static const Color sunset = Color(0xFFFF9F43);
+  static const Color sunsetDark = Color(0xFFE17B1A);
+  static const Color sunsetLight = Color(0xFFFECA72);
   
-  // Màu Hồng (Pink theme)
-  static const Color pink = Color(0xFFEC407A);
-  static const Color pinkDark = Color(0xFFC2185B);
-  static const Color pinkLight = Color(0xFFF48FB1);
+  // Rose Pink
+  static const Color rose = Color(0xFFE84393);
+  static const Color roseDark = Color(0xFFB8256E);
+  static const Color roseLight = Color(0xFFF78CB6);
 }
 
 /// Định nghĩa một theme màu
@@ -53,55 +53,55 @@ class AppColorTheme {
   });
 }
 
-/// Danh sách các theme màu có sẵn
+/// Danh sách các theme màu có sẵn - Premium palette
 const List<AppColorTheme> availableColorThemes = [
   AppColorTheme(
-    id: 'red',
-    name: 'Đỏ',
-    primary: ThemeColors.red,
-    primaryDark: ThemeColors.redDark,
-    primaryLight: ThemeColors.redLight,
-    accent: ThemeColors.redLight,
+    id: 'blue',
+    name: 'Ocean Blue',
+    primary: ThemeColors.oceanBlue,
+    primaryDark: ThemeColors.oceanBlueDark,
+    primaryLight: ThemeColors.oceanBlueLight,
+    accent: ThemeColors.oceanBlueLight,
+  ),
+  AppColorTheme(
+    id: 'coral',
+    name: 'Coral',
+    primary: ThemeColors.coral,
+    primaryDark: ThemeColors.coralDark,
+    primaryLight: ThemeColors.coralLight,
+    accent: ThemeColors.coralLight,
   ),
   AppColorTheme(
     id: 'green',
-    name: 'Xanh lá',
-    primary: ThemeColors.green,
-    primaryDark: ThemeColors.greenDark,
-    primaryLight: ThemeColors.greenLight,
-    accent: ThemeColors.greenLight,
-  ),
-  AppColorTheme(
-    id: 'blue',
-    name: 'Xanh dương',
-    primary: ThemeColors.blue,
-    primaryDark: ThemeColors.blueDark,
-    primaryLight: ThemeColors.blueLight,
-    accent: ThemeColors.blueLight,
+    name: 'Emerald',
+    primary: ThemeColors.emerald,
+    primaryDark: ThemeColors.emeraldDark,
+    primaryLight: ThemeColors.emeraldLight,
+    accent: ThemeColors.emeraldLight,
   ),
   AppColorTheme(
     id: 'purple',
-    name: 'Tím',
-    primary: ThemeColors.purple,
-    primaryDark: ThemeColors.purpleDark,
-    primaryLight: ThemeColors.purpleLight,
-    accent: ThemeColors.purpleLight,
+    name: 'Royal',
+    primary: ThemeColors.royal,
+    primaryDark: ThemeColors.royalDark,
+    primaryLight: ThemeColors.royalLight,
+    accent: ThemeColors.royalLight,
   ),
   AppColorTheme(
     id: 'orange',
-    name: 'Cam',
-    primary: ThemeColors.orange,
-    primaryDark: ThemeColors.orangeDark,
-    primaryLight: ThemeColors.orangeLight,
-    accent: ThemeColors.orangeLight,
+    name: 'Sunset',
+    primary: ThemeColors.sunset,
+    primaryDark: ThemeColors.sunsetDark,
+    primaryLight: ThemeColors.sunsetLight,
+    accent: ThemeColors.sunsetLight,
   ),
   AppColorTheme(
     id: 'pink',
-    name: 'Hồng',
-    primary: ThemeColors.pink,
-    primaryDark: ThemeColors.pinkDark,
-    primaryLight: ThemeColors.pinkLight,
-    accent: ThemeColors.pinkLight,
+    name: 'Rose',
+    primary: ThemeColors.rose,
+    primaryDark: ThemeColors.roseDark,
+    primaryLight: ThemeColors.roseLight,
+    accent: ThemeColors.roseLight,
   ),
 ];
 
@@ -110,8 +110,8 @@ class ThemeProvider extends ChangeNotifier {
   static const String _colorThemeKey = 'selected_color_theme';
   static const String _themeModeKey = 'theme_mode';
   
-  AppColorTheme _currentColorTheme = availableColorThemes[2]; // Mặc định: Blue
-  ThemeMode _themeMode = ThemeMode.light;
+  AppColorTheme _currentColorTheme = availableColorThemes[0]; // Mặc định: Ocean Blue
+  ThemeMode _themeMode = ThemeMode.dark; // Mặc định là Dark mode
   
   AppColorTheme get currentColorTheme => _currentColorTheme;
   ThemeMode get themeMode => _themeMode;
@@ -128,12 +128,12 @@ class ThemeProvider extends ChangeNotifier {
     final colorId = prefs.getString(_colorThemeKey) ?? 'blue';
     _currentColorTheme = availableColorThemes.firstWhere(
       (t) => t.id == colorId,
-      orElse: () => availableColorThemes[2],
+      orElse: () => availableColorThemes[0],
     );
     
     // Load theme mode
-    final modeStr = prefs.getString(_themeModeKey) ?? 'light';
-    _themeMode = modeStr == 'dark' ? ThemeMode.dark : ThemeMode.light;
+    final modeStr = prefs.getString(_themeModeKey) ?? 'dark';
+    _themeMode = modeStr == 'light' ? ThemeMode.light : ThemeMode.dark;
     
     notifyListeners();
   }

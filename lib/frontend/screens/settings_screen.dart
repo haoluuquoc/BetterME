@@ -464,25 +464,51 @@ class _SettingsContentState extends State<SettingsContent> {
     );
   }
   
-  /// Hiện color picker với các chấm màu
+  /// Hiện color picker với premium gradient dots
   void _showColorPicker(BuildContext context, ThemeProvider themeProvider) {
     showModalBottomSheet(
       context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Chọn màu chủ đạo',
-                style: Theme.of(context).textTheme.titleLarge,
+              // Handle bar
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
               ),
               const SizedBox(height: 20),
-              // Các chấm màu giống như hình
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              Text(
+                'Chọn màu chủ đạo',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Tùy chỉnh giao diện theo phong cách của bạn',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.grey[500],
+                ),
+              ),
+              const SizedBox(height: 24),
+              // Color grid
+              Wrap(
+                spacing: 12,
+                runSpacing: 16,
+                alignment: WrapAlignment.center,
                 children: availableColorThemes.map((colorTheme) {
                   final isSelected = themeProvider.currentColorTheme.id == colorTheme.id;
                   return GestureDetector(
@@ -491,16 +517,64 @@ class _SettingsContentState extends State<SettingsContent> {
                       Navigator.pop(ctx);
                     },
                     child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.all(4),
+                      duration: const Duration(milliseconds: 250),
+                      curve: Curves.easeOutCubic,
+                      width: 90,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                       decoration: BoxDecoration(
-                        shape: BoxShape.circle,
+                        borderRadius: BorderRadius.circular(16),
+                        color: isSelected 
+                            ? colorTheme.primary.withOpacity(0.1)
+                            : Colors.transparent,
                         border: Border.all(
-                          color: isSelected ? colorTheme.primary : Colors.transparent,
-                          width: 3,
+                          color: isSelected 
+                              ? colorTheme.primary.withOpacity(0.5)
+                              : Colors.transparent,
+                          width: 2,
                         ),
                       ),
-                      child: _buildColorDot(colorTheme.primary, isSelected ? 32 : 28),
+                      child: Column(
+                        children: [
+                          // Gradient dot with glow
+                          Container(
+                            width: isSelected ? 44 : 38,
+                            height: isSelected ? 44 : 38,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  colorTheme.primaryLight,
+                                  colorTheme.primary,
+                                  colorTheme.primaryDark,
+                                ],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: colorTheme.primary.withOpacity(isSelected ? 0.5 : 0.3),
+                                  blurRadius: isSelected ? 12 : 6,
+                                  spreadRadius: isSelected ? 2 : 0,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: isSelected 
+                                ? const Icon(Icons.check, color: Colors.white, size: 22)
+                                : null,
+                          ),
+                          const SizedBox(height: 8),
+                          // Color name
+                          Text(
+                            colorTheme.name,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              color: isSelected ? colorTheme.primary : Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 }).toList(),
@@ -513,13 +587,12 @@ class _SettingsContentState extends State<SettingsContent> {
     );
   }
   
-  /// Tạo chấm màu tròn
+  /// Tạo chấm màu tròn với gradient và shadow
   Widget _buildColorDot(Color color, double size) {
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: color,
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
@@ -1103,6 +1176,40 @@ class _SettingsContentState extends State<SettingsContent> {
     }
   }
 
+  Future<void> _performLogout() async {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Expanded(child: Text('Dang dang xuat...')),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      await AuthService().signOut();
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      Navigator.pushNamedAndRemoveUntil(context, Routes.login, (r) => false);
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Khong the dang xuat: $e')),
+      );
+    }
+  }
+
   void _showLogoutDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -1114,8 +1221,7 @@ class _SettingsContentState extends State<SettingsContent> {
           TextButton(
             onPressed: () async {
               Navigator.pop(ctx);
-              await AuthService().signOut();
-              Navigator.pushNamedAndRemoveUntil(context, Routes.login, (r) => false);
+              await _performLogout();
             },
             child: const Text('Đăng xuất', style: TextStyle(color: AppColors.error)),
           ),

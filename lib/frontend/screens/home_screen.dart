@@ -13,8 +13,9 @@ import 'water_alarm_screen.dart';
 import 'update_alarm_screen.dart';
 import 'settings_screen.dart';
 import 'health_screen.dart';
+import '../widgets/water_glass_widget.dart';
 
-/// Home Screen - Màn hình chính
+/// Home Screen - MÃ n hÃ¬nh chÃ­nh
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -24,6 +25,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
+  final Set<int> _visitedTabs = {0};
   StreamSubscription<String?>? _notificationSubscription;
   StreamSubscription<void>? _alarmSubscription;
   StreamSubscription<void>? _updateAlarmSubscription;
@@ -40,22 +42,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _setupUpdateAlarmListener();
     _checkPendingNotification();
     _checkNavigateToTab();
-    // Kiểm tra cập nhật khi mở app
+    // Kiá»ƒm tra cáº­p nháº­t khi má»Ÿ app
     if (!kIsWeb && Platform.isAndroid) {
       _checkForAppUpdate();
     }
   }
   
-  /// Kiểm tra flag navigate_to_tab (từ "Uống ngay" trên alarm screen khi launch từ notification)
+  /// Kiá»ƒm tra flag navigate_to_tab (tá»« "Uá»‘ng ngay" trÃªn alarm screen khi launch tá»« notification)
   void _checkNavigateToTab() async {
     final prefs = await SharedPreferences.getInstance();
     final tabIndex = prefs.getInt('navigate_to_tab');
     if (tabIndex != null) {
       await prefs.remove('navigate_to_tab');
       if (mounted) {
-        setState(() => _currentIndex = tabIndex);
+        _openTab(tabIndex);
       }
     }
+  }
+
+  void _openTab(int index) {
+    setState(() {
+      _currentIndex = index;
+      _visitedTabs.add(index);
+    });
   }
   
   @override
@@ -75,48 +84,48 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       HealthService().syncLocalStepsToFirestore();
     }
     if (state == AppLifecycleState.resumed) {
-      // Không check nếu vừa dismiss alarm screen trong 2 giây gần đây
+      // KhÃ´ng check náº¿u vá»«a dismiss alarm screen trong 2 giÃ¢y gáº§n Ä‘Ã¢y
       if (_lastAlarmDismissed != null) {
         final diff = DateTime.now().difference(_lastAlarmDismissed!);
         if (diff.inSeconds < 2) return;
       }
-      // App vừa quay lại foreground → kiểm tra có pending alarm không
+      // App vá»«a quay láº¡i foreground â†’ kiá»ƒm tra cÃ³ pending alarm khÃ´ng
       _checkPendingNotification();
       
-      // iOS: kiểm tra notification đã fire trong lúc ở background
-      // Và reschedule thêm notifications (iOS giới hạn 64 pending)
+      // iOS: kiá»ƒm tra notification Ä‘Ã£ fire trong lÃºc á»Ÿ background
+      // VÃ  reschedule thÃªm notifications (iOS giá»›i háº¡n 64 pending)
       if (!kIsWeb && Platform.isIOS) {
         _checkIOSAlarmAndReschedule();
       }
     }
   }
   
-  /// iOS: reschedule notifications khi app resumed (iOS giới hạn 64 pending)
-  /// Hiện popup nhẹ thay vì alarm screen toàn màn hình
+  /// iOS: reschedule notifications khi app resumed (iOS giá»›i háº¡n 64 pending)
+  /// Hiá»‡n popup nháº¹ thay vÃ¬ alarm screen toÃ n mÃ n hÃ¬nh
   void _checkIOSAlarmAndReschedule() async {
-    // Reschedule để luôn có đủ notifications cho tương lai
+    // Reschedule Ä‘á»ƒ luÃ´n cÃ³ Ä‘á»§ notifications cho tÆ°Æ¡ng lai
     NotificationService().rescheduleWaterReminder();
     
-    // Kiểm tra xem có alarm đã fire chưa xử lý không → hiện popup
+    // Kiá»ƒm tra xem cÃ³ alarm Ä‘Ã£ fire chÆ°a xá»­ lÃ½ khÃ´ng â†’ hiá»‡n popup
     final shouldShowAlarm = await NotificationService().checkIOSPendingAlarm();
     if (shouldShowAlarm && mounted && !_isAlarmShowing) {
       _showWaterReminderPopup();
     }
   }
   
-  /// Listener: nhận signal từ IsolateNameServer khi app đang mở
+  /// Listener: nháº­n signal tá»« IsolateNameServer khi app Ä‘ang má»Ÿ
   void _setupAlarmListener() {
     if (kIsWeb) return;
     _alarmSubscription = NotificationService.onAlarmFired.listen((_) async {
       if (!kIsWeb && Platform.isIOS) {
         return;
       }
-      // Reset block flag khi có alarm mới (dùng SharedPreferences)
+      // Reset block flag khi cÃ³ alarm má»›i (dÃ¹ng SharedPreferences)
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('block_alarm_screen', false);
       
       if (mounted && !_isAlarmShowing) {
-        // Check nếu là snooze (từ snooze callback)
+        // Check náº¿u lÃ  snooze (tá»« snooze callback)
         final wasSnooze = prefs.getBool('water_snooze_just_fired') ?? false;
         await prefs.setBool('water_snooze_just_fired', false);
         _showAlarmScreen(isSnooze: wasSnooze);
@@ -124,7 +133,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
   
-  /// Listener: nhận signal update alarm
+  /// Listener: nháº­n signal update alarm
   void _setupUpdateAlarmListener() {
     if (kIsWeb) return;
     _updateAlarmSubscription = NotificationService.onUpdateAlarmFired.listen((_) {
@@ -137,7 +146,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
   
-  /// Hiện UpdateAlarmScreen full-screen kiểu báo thức
+  /// Hiá»‡n UpdateAlarmScreen full-screen kiá»ƒu bÃ¡o thá»©c
   void _showUpdateAlarmScreen() async {
     final result = await Navigator.of(context).push<String>(
       MaterialPageRoute(
@@ -147,16 +156,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
     
     if (result == 'update') {
-      // Chuyển sang tab Settings (index 4 vì thêm tab Sức khỏe)
-      setState(() => _currentIndex = 4);
+      // Chuyá»ƒn sang tab Settings (index 4 vÃ¬ thÃªm tab Sá»©c khá»e)
+      _openTab(4);
     }
   }
   
-  /// Hiện WaterAlarmScreen full-screen kiểu báo thức
+  /// Hiá»‡n WaterAlarmScreen full-screen kiá»ƒu bÃ¡o thá»©c
   void _showAlarmScreen({bool isSnooze = false}) async {
     if (_isAlarmShowing) return;
     
-    // Check block flag từ SharedPreferences
+    // Check block flag tá»« SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
     final blocked = prefs.getBool('block_alarm_screen') ?? false;
@@ -175,14 +184,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _lastAlarmDismissed = DateTime.now();
     
     if (result == 'drink') {
-      setState(() => _currentIndex = 1);
+      _openTab(1);
       _checkGoalAndAskContinue();
     }
-    // result == 'snooze' → đã xử lý trong WaterAlarmScreen
+    // result == 'snooze' â†’ Ä‘Ã£ xá»­ lÃ½ trong WaterAlarmScreen
   }
   
-  /// Popup nhẹ thay thế alarm screen trên iOS
-  /// Hiện dialog nhỏ với "Uống ngay" / "Để sau" thay vì toàn màn hình vàng đen
+  /// Popup nháº¹ thay tháº¿ alarm screen trÃªn iOS
+  /// Hiá»‡n dialog nhá» vá»›i "Uá»‘ng ngay" / "Äá»ƒ sau" thay vÃ¬ toÃ n mÃ n hÃ¬nh vÃ ng Ä‘en
   void _showWaterReminderPopup() async {
     if (_isAlarmShowing || !mounted) return;
     _isAlarmShowing = true;
@@ -194,19 +203,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
-            Text('💧', style: TextStyle(fontSize: 28)),
+            Text('ðŸ’§', style: TextStyle(fontSize: 28)),
             const SizedBox(width: 10),
-            const Text('Nhắc nhở uống nước'),
+            const Text('Nháº¯c nhá»Ÿ uá»‘ng nÆ°á»›c'),
           ],
         ),
         content: const Text(
-          'Đã đến lúc uống nước rồi! 🥤\nHãy uống một cốc nước để giữ sức khỏe nhé.',
+          'ÄÃ£ Ä‘áº¿n lÃºc uá»‘ng nÆ°á»›c rá»“i! ðŸ¥¤\nHÃ£y uá»‘ng má»™t cá»‘c nÆ°á»›c Ä‘á»ƒ giá»¯ sá»©c khá»e nhÃ©.',
           style: TextStyle(fontSize: 15, height: 1.5),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, 'snooze'),
-            child: const Text('Để sau'),
+            child: const Text('Äá»ƒ sau'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, 'drink'),
@@ -215,7 +224,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            child: const Text('Uống ngay'),
+            child: const Text('Uá»‘ng ngay'),
           ),
         ],
       ),
@@ -227,7 +236,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (result == 'drink') {
       NotificationService().cancelNotification(0);
       NotificationService().cancelSnooze();
-      setState(() => _currentIndex = 1);
+      _openTab(1);
       _checkGoalAndAskContinue();
     } else if (result == 'snooze') {
       NotificationService().cancelNotification(0);
@@ -235,46 +244,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
   
-  /// Kiểm tra mục tiêu và hỏi người dùng có muốn tiếp tục nhắc không
+  /// Kiá»ƒm tra má»¥c tiÃªu vÃ  há»i ngÆ°á»i dÃ¹ng cÃ³ muá»‘n tiáº¿p tá»¥c nháº¯c khÃ´ng
   void _checkGoalAndAskContinue() async {
     final prefs = await SharedPreferences.getInstance();
     final currentMl = prefs.getInt('water_current_ml') ?? 0;
     final goalMl = prefs.getInt('water_daily_goal_ml') ?? 2000;
     
     if (currentMl >= goalMl) {
-      // Đã đạt mục tiêu → hỏi có muốn tiếp tục nhắc không
+      // ÄÃ£ Ä‘áº¡t má»¥c tiÃªu â†’ há»i cÃ³ muá»‘n tiáº¿p tá»¥c nháº¯c khÃ´ng
       if (!mounted) return;
       final continueReminder = await showDialog<bool>(
         context: context,
         barrierDismissible: false,
         builder: (ctx) => AlertDialog(
-          title: const Text('Đã đủ mục tiêu!'),
+          title: const Text('ÄÃ£ Ä‘á»§ má»¥c tiÃªu!'),
           content: Text(
-            'Bạn đã uống đủ ${goalMl}ml hôm nay.\n'
-            'Bạn có muốn tiếp tục nhận nhắc nhở không?'
+            'Báº¡n Ä‘Ã£ uá»‘ng Ä‘á»§ ${goalMl}ml hÃ´m nay.\n'
+            'Báº¡n cÃ³ muá»‘n tiáº¿p tá»¥c nháº­n nháº¯c nhá»Ÿ khÃ´ng?'
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Không, tắt nhắc nhở'),
+              child: const Text('KhÃ´ng, táº¯t nháº¯c nhá»Ÿ'),
             ),
             ElevatedButton(
               onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Tiếp tục nhắc'),
+              child: const Text('Tiáº¿p tá»¥c nháº¯c'),
             ),
           ],
         ),
       );
       
       if (continueReminder == false) {
-        // Tự tắt reminder
+        // Tá»± táº¯t reminder
         await NotificationService().stopWaterReminder();
         await prefs.setBool('water_reminder_enabled', false);
-        // Sync toggle trên WaterReminderScreen
+        // Sync toggle trÃªn WaterReminderScreen
         _waterReminderKey.currentState?._loadReminderSettings();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Đã tắt nhắc nhở uống nước')),
+            const SnackBar(content: Text('ÄÃ£ táº¯t nháº¯c nhá»Ÿ uá»‘ng nÆ°á»›c')),
           );
         }
       }
@@ -286,14 +295,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _currentVersion = '1.0.0';
 
   void _checkForAppUpdate() async {
-    // Đọc version thật từ package info
+    // Äá»c version tháº­t tá»« package info
     try {
       final info = await PackageInfo.fromPlatform();
       _currentVersion = info.version;
       _currentBuildNumber = int.tryParse(info.buildNumber) ?? 1;
     } catch (_) {}
 
-    // Chỉ check 1 lần mỗi 24h
+    // Chá»‰ check 1 láº§n má»—i 24h
     final prefs = await SharedPreferences.getInstance();
     final lastCheck = prefs.getInt('last_update_check_ms') ?? 0;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -313,7 +322,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (serverBuild <= _currentBuildNumber || downloadUrl.isEmpty) return;
 
       if (!mounted) return;
-      // Hiện dialog cập nhật
+      // Hiá»‡n dialog cáº­p nháº­t
       _showAppUpdateDialog(serverVersion, notes, downloadUrl, requiredCode);
     } catch (e) {
       debugPrint('Auto update check error: $e');
@@ -332,7 +341,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           children: [
             const Icon(Icons.system_update, color: Colors.blue, size: 28),
             const SizedBox(width: 8),
-            Expanded(child: Text('Có phiên bản mới $newVersion')),
+            Expanded(child: Text('CÃ³ phiÃªn báº£n má»›i $newVersion')),
           ],
         ),
         content: SingleChildScrollView(
@@ -340,7 +349,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Bạn đang dùng: $_currentVersion',
+              Text('Báº¡n Ä‘ang dÃ¹ng: $_currentVersion',
                 style: TextStyle(color: Colors.grey[600], fontSize: 13)),
               if (notes.isNotEmpty) ...[
                 const SizedBox(height: 12),
@@ -356,13 +365,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ],
               if (needCode) ...[
                 const SizedBox(height: 14),
-                const Text('Nhập mã cập nhật:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const Text('Nháº­p mÃ£ cáº­p nháº­t:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 const SizedBox(height: 8),
                 TextField(
                   controller: codeController,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
-                    hintText: 'Nhập mã...',
+                    hintText: 'Nháº­p mÃ£...',
                     isDense: true,
                     contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   ),
@@ -377,24 +386,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              // Lên lịch nhắc nhở cập nhật sau 20 giây (màn hình vàng đen)
+              // LÃªn lá»‹ch nháº¯c nhá»Ÿ cáº­p nháº­t sau 20 giÃ¢y (mÃ n hÃ¬nh vÃ ng Ä‘en)
               NotificationService().scheduleUpdateAlarm(
                 version: newVersion,
                 notes: notes,
                 downloadUrl: downloadUrl,
               );
             },
-            child: const Text('Để sau'),
+            child: const Text('Äá»ƒ sau'),
           ),
           ElevatedButton.icon(
             icon: const Icon(Icons.download, size: 18),
-            label: const Text('Cập nhật ngay'),
+            label: const Text('Cáº­p nháº­t ngay'),
             onPressed: () {
               if (needCode) {
                 final entered = codeController.text.trim().toUpperCase();
                 if (entered != requiredCode.toUpperCase()) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Mã không đúng')),
+                    const SnackBar(content: Text('MÃ£ khÃ´ng Ä‘Ãºng')),
                   );
                   return;
                 }
@@ -422,7 +431,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             children: [
               const CircularProgressIndicator(),
               const SizedBox(width: 20),
-              Expanded(child: Text('Đang tải bản cập nhật...\n${uri.host}')),
+              Expanded(child: Text('Äang táº£i báº£n cáº­p nháº­t...\n${uri.host}')),
             ],
           ),
         ),
@@ -439,7 +448,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (mounted) {
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Lỗi tải: HTTP ${response.statusCode}')),
+            SnackBar(content: Text('Lá»—i táº£i: HTTP ${response.statusCode}')),
           );
         }
         return;
@@ -457,14 +466,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final installed = await NotificationService().installApk(file.path);
       if (!installed && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không thể cài đặt. Kiểm tra quyền.')),
+          const SnackBar(content: Text('KhÃ´ng thá»ƒ cÃ i Ä‘áº·t. Kiá»ƒm tra quyá»n.')),
         );
       }
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Lỗi: $e')),
+          SnackBar(content: Text('Lá»—i: $e')),
         );
       }
     }
@@ -475,11 +484,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     
     _notificationSubscription = NotificationService.onNotificationTap.listen((payload) {
       if (payload == 'water_drink_tab') {
-        // Nếu alarm screen đang hiện → đóng nó
+        // Náº¿u alarm screen Ä‘ang hiá»‡n â†’ Ä‘Ã³ng nÃ³
         if (_isAlarmShowing && mounted) {
           Navigator.of(context).pop('drink');
         }
-        setState(() => _currentIndex = 1);
+        _openTab(1);
         NotificationService().cancelSnooze();
         _checkGoalAndAskContinue();
       }
@@ -493,47 +502,47 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     NotificationService.pendingPayload = null;
     
     if (payload == 'water_drink_tab') {
-      // User bấm "Uống ngay" từ notification → vào tab uống nước
+      // User báº¥m "Uá»‘ng ngay" tá»« notification â†’ vÃ o tab uá»‘ng nÆ°á»›c
       WidgetsBinding.instance.addPostFrameCallback((_) {
         NotificationService().cancelNotification(0);
         NotificationService().cancelSnooze();
-        setState(() => _currentIndex = 1);
+        _openTab(1);
       });
     } else if (payload == 'water_alarm_screen') {
       if (!kIsWeb && Platform.isIOS) {
-        // iOS: hiện popup thay vì alarm screen
+        // iOS: hiá»‡n popup thay vÃ¬ alarm screen
         WidgetsBinding.instance.addPostFrameCallback((_) {
           NotificationService().cancelNotification(0);
           _showWaterReminderPopup();
         });
         return;
       }
-      // Android: alarm screen toàn màn hình
+      // Android: alarm screen toÃ n mÃ n hÃ¬nh
       WidgetsBinding.instance.addPostFrameCallback((_) {
         NotificationService().cancelNotification(0);
         _showAlarmScreen();
       });
     } else if (payload == 'water_snooze') {
       if (!kIsWeb && Platform.isIOS) {
-        // iOS: schedule snooze trực tiếp, không cần alarm screen
+        // iOS: schedule snooze trá»±c tiáº¿p, khÃ´ng cáº§n alarm screen
         WidgetsBinding.instance.addPostFrameCallback((_) {
           NotificationService().cancelNotification(0);
           NotificationService().scheduleSnooze();
         });
         return;
       }
-      // Android: xử lý snooze từ notification khi app chưa chạy
+      // Android: xá»­ lÃ½ snooze tá»« notification khi app chÆ°a cháº¡y
       WidgetsBinding.instance.addPostFrameCallback((_) {
         NotificationService().cancelNotification(0);
         NotificationService().scheduleSnooze();
         NotificationService().showSimpleNotification(
-          title: 'Nhắc nhở uống nước',
-          body: 'Sẽ nhắc lại sau 20 giây',
+          title: 'Nháº¯c nhá»Ÿ uá»‘ng nÆ°á»›c',
+          body: 'Sáº½ nháº¯c láº¡i sau 20 giÃ¢y',
           payload: 'water_reminder',
         );
       });
     } else {
-      // Kiểm tra pending alarm từ background
+      // Kiá»ƒm tra pending alarm tá»« background
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();
       
@@ -556,60 +565,83 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Widget _buildTabIfVisited(int index, Widget child) {
+    if (_visitedTabs.contains(index) || _currentIndex == index) {
+      return child;
+    }
+    return const SizedBox.shrink();
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          HomeContent(onNavigate: (index) => setState(() => _currentIndex = index)),
-          WaterReminderScreen(key: _waterReminderKey),
-          const ExpenseScreen(),
-          const HealthScreen(),
-          const SettingsContent(),
+          _buildTabIfVisited(0, HomeContent(onNavigate: _openTab)),
+          _buildTabIfVisited(1, WaterReminderScreen(key: _waterReminderKey)),
+          _buildTabIfVisited(2, const ExpenseScreen()),
+          _buildTabIfVisited(3, const HealthScreen()),
+          _buildTabIfVisited(4, const SettingsContent()),
         ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: AppColors.primary,
-        unselectedItemColor: AppColors.grey,
-        onTap: (index) {
-          setState(() => _currentIndex = index);
-        },
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
-            label: 'Trang chủ',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.water_drop_outlined),
-            activeIcon: Icon(Icons.water_drop),
-            label: 'Uống nước',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.account_balance_wallet_outlined),
-            activeIcon: Icon(Icons.account_balance_wallet),
-            label: 'Chi tiêu',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.favorite_outline),
-            activeIcon: Icon(Icons.favorite),
-            label: 'Sức khỏe',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings_outlined),
-            activeIcon: Icon(Icons.settings),
-            label: 'Cài đặt',
-          ),
-        ],
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF0A1628),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF3A9BD5).withOpacity(0.15),
+              blurRadius: 20,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _currentIndex,
+          type: BottomNavigationBarType.fixed,
+          backgroundColor: const Color(0xFF0A1628),
+          selectedItemColor: const Color(0xFF5BB5E8),
+          unselectedItemColor: const Color(0xFF64748B),
+          selectedFontSize: 12,
+          unselectedFontSize: 11,
+          elevation: 0,
+          onTap: (index) {
+            _openTab(index);
+          },
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.home_outlined),
+              activeIcon: Icon(Icons.home),
+              label: 'Trang chủ',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.water_drop_outlined),
+              activeIcon: Icon(Icons.water_drop),
+              label: 'Uống nước',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.account_balance_wallet_outlined),
+              activeIcon: Icon(Icons.account_balance_wallet),
+              label: 'Chi tiêu',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.favorite_outline),
+              activeIcon: Icon(Icons.favorite),
+              label: 'Sức khỏe',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.settings_outlined),
+              activeIcon: Icon(Icons.settings),
+              label: 'Cài đặt',
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-/// Home Content - Trang chủ tổng quan
+
+/// Home Content - Trang chá»§ tá»•ng quan
 class HomeContent extends StatefulWidget {
   final void Function(int)? onNavigate;
   const HomeContent({super.key, this.onNavigate});
@@ -725,7 +757,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
     } else if (amount >= 1000) {
       return '${(amount / 1000).toStringAsFixed(0)}k';
     }
-    return '${amount.toStringAsFixed(0)}đ';
+    return '${amount.toStringAsFixed(0)}Ä‘';
   }
 
   @override
@@ -736,12 +768,12 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Làm mới dữ liệu',
+            tooltip: 'LÃ m má»›i dá»¯ liá»‡u',
             onPressed: () {
               _loadData();
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Đã làm mới dữ liệu'),
+                  content: Text('ÄÃ£ lÃ m má»›i dá»¯ liá»‡u'),
                   duration: Duration(seconds: 1),
                 ),
               );
@@ -787,17 +819,17 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
     String emoji;
     
     if (hour >= 5 && hour < 12) {
-      greeting = 'Chào buổi sáng!';
-      emoji = '☀️';
+      greeting = 'ChÃ o buá»•i sÃ¡ng!';
+      emoji = 'â˜€ï¸';
     } else if (hour >= 12 && hour < 18) {
-      greeting = 'Chào buổi chiều!';
-      emoji = '🌤️';
+      greeting = 'ChÃ o buá»•i chiá»u!';
+      emoji = 'ðŸŒ¤ï¸';
     } else if (hour >= 18 && hour < 22) {
-      greeting = 'Chào buổi tối!';
-      emoji = '🌙';
+      greeting = 'ChÃ o buá»•i tá»‘i!';
+      emoji = 'ðŸŒ™';
     } else {
-      greeting = 'Khuya rồi!';
-      emoji = '🌃';
+      greeting = 'Khuya rá»“i!';
+      emoji = 'ðŸŒƒ';
     }
 
     return Column(
@@ -811,7 +843,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
         ),
         const SizedBox(height: 4),
         Text(
-          'Chăm sóc sức khỏe & quản lý tài chính',
+          'ChÄƒm sÃ³c sá»©c khá»e & quáº£n lÃ½ tÃ i chÃ­nh',
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             color: AppColors.grey,
           ),
@@ -834,11 +866,11 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
       ),
       child: Row(
         children: [
-          const Text('🎂', style: TextStyle(fontSize: 28)),
+          const Text('ðŸŽ‚', style: TextStyle(fontSize: 28)),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Hôm nay là sinh nhật $names 🎉',
+              'HÃ´m nay lÃ  sinh nháº­t $names ðŸŽ‰',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 fontWeight: FontWeight.w600,
                 color: Colors.pink.shade700,
@@ -856,7 +888,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
     final balance = _totalIncome - _totalExpense;
 
     return GestureDetector(
-      onTap: () => widget.onNavigate?.call(3), // Sức khỏe tab
+      onTap: () => widget.onNavigate?.call(3), // Sá»©c khá»e tab
       child: Card(
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -879,7 +911,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
                   const SizedBox(width: 14),
                   Expanded(
                     child: Text(
-                      'Tổng quan hôm nay',
+                      'Tá»•ng quan hÃ´m nay',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
@@ -897,7 +929,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
                       theme,
                       Icons.directions_walk,
                       '$_todaySteps',
-                      'Bước chân',
+                      'BÆ°á»›c chÃ¢n',
                       Colors.deepOrange,
                     ),
                   ),
@@ -906,7 +938,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
                       theme,
                       Icons.water_drop,
                       '$glasses ly',
-                      'Nước uống',
+                      'NÆ°á»›c uá»‘ng',
                       Colors.blue,
                     ),
                   ),
@@ -922,7 +954,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
                       _todaySleep != null
                           ? '${_todaySleep!.toStringAsFixed(1)}h'
                           : '--',
-                      'Giấc ngủ',
+                      'Giáº¥c ngá»§',
                       Colors.indigo,
                     ),
                   ),
@@ -931,7 +963,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
                       theme,
                       Icons.account_balance_wallet,
                       _formatCurrency(balance < 0 ? -balance : balance),
-                      balance >= 0 ? 'Còn lại' : 'Âm',
+                      balance >= 0 ? 'CÃ²n láº¡i' : 'Ã‚m',
                       balance >= 0 ? Colors.green : Colors.red,
                     ),
                   ),
@@ -987,12 +1019,12 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
     
     String statusText;
     if (_waterCurrentMl == 0) {
-      statusText = '$glasses/$goalGlasses ly - Bắt đầu uống nước nào! 💧';
+      statusText = '$glasses/$goalGlasses ly - Báº¯t Ä‘áº§u uá»‘ng nÆ°á»›c nÃ o! ðŸ’§';
     } else if (_waterCurrentMl >= _waterGoalMl) {
-      statusText = '$glasses/$goalGlasses ly - Đã đủ mục tiêu! 🎉';
+      statusText = '$glasses/$goalGlasses ly - ÄÃ£ Ä‘á»§ má»¥c tiÃªu! ðŸŽ‰';
     } else {
       final remaining = _waterGoalMl - _waterCurrentMl;
-      statusText = '$glasses/$goalGlasses ly - Còn ${remaining}ml nữa 💧';
+      statusText = '$glasses/$goalGlasses ly - CÃ²n ${remaining}ml ná»¯a ðŸ’§';
     }
 
     return Card(
@@ -1021,14 +1053,14 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Nhắc nhở uống nước',
+                        'Nháº¯c nhá»Ÿ uá»‘ng nÆ°á»›c',
                         style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Mục tiêu: ${_waterGoalMl}ml / ngày',
+                        'Má»¥c tiÃªu: ${_waterGoalMl}ml / ngÃ y',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AppColors.grey,
                         ),
@@ -1091,14 +1123,14 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Quản lý chi tiêu',
+                        'Quáº£n lÃ½ chi tiÃªu',
                         style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Tháng này',
+                        'ThÃ¡ng nÃ y',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AppColors.grey,
                         ),
@@ -1113,9 +1145,9 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildExpenseItem(context, 'Thu nhập', _formatCurrency(_totalIncome), Colors.green),
-                _buildExpenseItem(context, 'Chi tiêu', _formatCurrency(_totalExpense), Colors.red),
-                _buildExpenseItem(context, 'Còn lại', _formatCurrency(balance), Colors.blue),
+                _buildExpenseItem(context, 'Thu nháº­p', _formatCurrency(_totalIncome), Colors.green),
+                _buildExpenseItem(context, 'Chi tiÃªu', _formatCurrency(_totalExpense), Colors.red),
+                _buildExpenseItem(context, 'CÃ²n láº¡i', _formatCurrency(balance), Colors.blue),
               ],
             ),
           ],
@@ -1146,7 +1178,7 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
   }
 }
 
-/// Water Reminder Screen - Nhắc nhở uống nước (theo spec 4.2)
+/// Water Reminder Screen - Nháº¯c nhá»Ÿ uá»‘ng nÆ°á»›c (theo spec 4.2)
 class WaterReminderScreen extends StatefulWidget {
   const WaterReminderScreen({super.key});
 
@@ -1158,37 +1190,37 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   
-  // Thông tin người dùng
+  // ThÃ´ng tin ngÆ°á»i dÃ¹ng
   double _weight = 60.0; // kg
   double _height = 165.0; // cm
   
-  // Mục tiêu và tiến độ
+  // Má»¥c tiÃªu vÃ  tiáº¿n Ä‘á»™
   int _dailyGoalMl = 2000;
   int _currentMl = 0;
-  bool _hasAskedContinue = false; // Đã hỏi tiếp tục uống chưa
+  bool _hasAskedContinue = false; // ÄÃ£ há»i tiáº¿p tá»¥c uá»‘ng chÆ°a
   
-  // Cài đặt nhắc nhở
+  // CÃ i Ä‘áº·t nháº¯c nhá»Ÿ
   bool _reminderEnabled = false;
   String _notificationMode = 'sound'; // 'sound', 'vibrate', 'both', 'silent'
   
-  // Interval nhắc nhở (có test options)
+  // Interval nháº¯c nhá»Ÿ (cÃ³ test options)
   int _reminderIntervalMinutes = 30;
-  DateTime? _reminderStartedAt; // Thời điểm bật nhắc nhở
+  DateTime? _reminderStartedAt; // Thá»i Ä‘iá»ƒm báº­t nháº¯c nhá»Ÿ
   
   // Options cho interval
   static const List<Map<String, dynamic>> _intervalOptions = [
-    {'value': 1, 'label': '30 giây (test)', 'seconds': 30},
-    {'value': 2, 'label': '1 phút (test)', 'seconds': 60},
-    {'value': 15, 'label': '15 phút', 'seconds': 900},
-    {'value': 30, 'label': '30 phút', 'seconds': 1800},
-    {'value': 45, 'label': '45 phút', 'seconds': 2700},
-    {'value': 60, 'label': '60 phút', 'seconds': 3600},
+    {'value': 1, 'label': '30 giÃ¢y (test)', 'seconds': 30},
+    {'value': 2, 'label': '1 phÃºt (test)', 'seconds': 60},
+    {'value': 15, 'label': '15 phÃºt', 'seconds': 900},
+    {'value': 30, 'label': '30 phÃºt', 'seconds': 1800},
+    {'value': 45, 'label': '45 phÃºt', 'seconds': 2700},
+    {'value': 60, 'label': '60 phÃºt', 'seconds': 3600},
   ];
   
   String _getIntervalLabel(int value) {
     final opt = _intervalOptions.firstWhere(
       (o) => o['value'] == value, 
-      orElse: () => {'label': '$value phút'},
+      orElse: () => {'label': '$value phÃºt'},
     );
     return opt['label'] as String;
   }
@@ -1201,13 +1233,13 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     return Duration(seconds: opt['seconds'] as int);
   }
   
-  // Lịch sử uống nước hôm nay
+  // Lá»‹ch sá»­ uá»‘ng nÆ°á»›c hÃ´m nay
   final List<Map<String, dynamic>> _todayHistory = [];
   
-  // Lịch sử các ngày trước (load từ SharedPreferences)
+  // Lá»‹ch sá»­ cÃ¡c ngÃ y trÆ°á»›c (load tá»« SharedPreferences)
   List<Map<String, dynamic>> _weekHistory = [];
   
-  /// Tạo date key cho SharedPreferences: "2026-03-07"
+  /// Táº¡o date key cho SharedPreferences: "2026-03-07"
   String _dateKey(DateTime date) {
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
@@ -1224,12 +1256,12 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     _loadUserProfile();
   }
 
-  /// Load weight/height từ SharedPreferences (đồng bộ từ mọi nguồn)
+  /// Load weight/height tá»« SharedPreferences (Ä‘á»“ng bá»™ tá»« má»i nguá»“n)
   Future<void> _loadUserProfile() async {
     final prefs = await SharedPreferences.getInstance();
     final hs = HealthService();
     
-    // Ưu tiên lấy height từ health service (user_height_cm)
+    // Æ¯u tiÃªn láº¥y height tá»« health service (user_height_cm)
     double? h = await hs.getHeight();
     // Fallback sang profile_height
     if (h == null) {
@@ -1237,7 +1269,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
       if (profileH.isNotEmpty) h = double.tryParse(profileH);
     }
     
-    // Ưu tiên lấy weight từ health service (weight_history)
+    // Æ¯u tiÃªn láº¥y weight tá»« health service (weight_history)
     double? w = await hs.getLatestWeight();
     // Fallback sang profile_weight
     if (w == null) {
@@ -1245,7 +1277,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
       if (profileW.isNotEmpty) w = double.tryParse(profileW);
     }
     
-    // Nếu vẫn thiếu thì sync từ Firestore profile
+    // Náº¿u váº«n thiáº¿u thÃ¬ sync tá»« Firestore profile
     if (w == null || h == null) {
       final cloud = await FirestoreService().loadProfile();
       if (cloud != null) {
@@ -1290,28 +1322,28 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     }
   }
 
-  /// Load dữ liệu uống nước theo ngày từ SharedPreferences, sync từ Firestore nếu local trống
+  /// Load dá»¯ liá»‡u uá»‘ng nÆ°á»›c theo ngÃ y tá»« SharedPreferences, sync tá»« Firestore náº¿u local trá»‘ng
   Future<void> _loadWaterData() async {
     final prefs = await SharedPreferences.getInstance();
     final today = _todayKey;
     
-    // Kiểm tra ngày mới → reset nếu cần
+    // Kiá»ƒm tra ngÃ y má»›i â†’ reset náº¿u cáº§n
     final lastDate = prefs.getString('water_last_date') ?? '';
     if (lastDate != today) {
-      // Lưu dữ liệu ngày cũ vào history trước khi reset
+      // LÆ°u dá»¯ liá»‡u ngÃ y cÅ© vÃ o history trÆ°á»›c khi reset
       if (lastDate.isNotEmpty) {
         final oldMl = prefs.getInt('water_current_ml') ?? 0;
         if (oldMl > 0) {
           await prefs.setInt('water_history_$lastDate', oldMl);
         }
       }
-      // Reset cho ngày mới
+      // Reset cho ngÃ y má»›i
       await prefs.setInt('water_current_ml', 0);
       await prefs.setString('water_last_date', today);
       await prefs.remove('water_today_entries');
     }
     
-    // Load dữ liệu hôm nay từ local
+    // Load dá»¯ liá»‡u hÃ´m nay tá»« local
     int currentMl = prefs.getInt('water_current_ml') ?? 0;
     final entries = prefs.getStringList('water_today_entries') ?? [];
     
@@ -1328,7 +1360,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
       }
     }
 
-    // Nếu local trống → sync từ Firestore (cài lại app / đổi tài khoản)
+    // Náº¿u local trá»‘ng â†’ sync tá»« Firestore (cÃ i láº¡i app / Ä‘á»•i tÃ i khoáº£n)
     if (currentMl == 0 && entries.isEmpty) {
       try {
         final cloudToday = await FirestoreService().loadWaterDaily(today);
@@ -1339,7 +1371,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
             await prefs.setInt('water_current_ml', currentMl);
             if (goalMl > 0) await prefs.setInt('water_daily_goal_ml', goalMl);
             await prefs.setString('water_last_date', today);
-            // Load entries từ Firestore
+            // Load entries tá»« Firestore
             final cloudEntries = cloudToday['entries'] as List<dynamic>?;
             if (cloudEntries != null) {
               for (final e in cloudEntries) {
@@ -1359,7 +1391,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
       }
     }
     
-    // Load lịch sử 7 ngày trước
+    // Load lá»‹ch sá»­ 7 ngÃ y trÆ°á»›c
     final List<Map<String, dynamic>> weekData = [];
     bool hasLocalHistory = false;
     for (int i = 1; i <= 7; i++) {
@@ -1370,7 +1402,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
       weekData.add({'date': date, 'amount': amount});
     }
     
-    // Nếu local history trống → sync từ Firestore
+    // Náº¿u local history trá»‘ng â†’ sync tá»« Firestore
     if (!hasLocalHistory) {
       try {
         final cloudHistory = await FirestoreService().loadWaterHistory(7);
@@ -1380,7 +1412,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
             final date = item['date'] as DateTime;
             final amount = (item['amount'] as num?)?.toInt() ?? 0;
             weekData.add({'date': date, 'amount': amount});
-            // Cache lại vào local
+            // Cache láº¡i vÃ o local
             if (amount > 0) {
               await prefs.setInt('water_history_${_dateKey(date)}', amount);
             }
@@ -1405,7 +1437,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     super.dispose();
   }
   
-  // Lên lịch notification cho background (khi app đóng)
+  // LÃªn lá»‹ch notification cho background (khi app Ä‘Ã³ng)
   Future<bool> _scheduleBackgroundNotifications() async {
     if (kIsWeb) return false;
     if (!_reminderEnabled) return false;
@@ -1413,26 +1445,26 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     try {
       await NotificationService().initialize();
 
-      // Yêu cầu quyền notification (Android 13+)
+      // YÃªu cáº§u quyá»n notification (Android 13+)
       final notifPermission = await NotificationService().requestPermission();
       if (!notifPermission) {
-        debugPrint('⚠️ Notification permission denied');
+        debugPrint('âš ï¸ Notification permission denied');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Vui lòng cấp quyền thông báo để nhận nhắc nhở')),
+            const SnackBar(content: Text('Vui lÃ²ng cáº¥p quyá»n thÃ´ng bÃ¡o Ä‘á»ƒ nháº­n nháº¯c nhá»Ÿ')),
           );
         }
         return false;
       }
       
-      // Yêu cầu quyền exact alarm (Android 12+)
+      // YÃªu cáº§u quyá»n exact alarm (Android 12+)
       if (!kIsWeb && Platform.isAndroid) {
         final exactAlarmOk = await NotificationService().requestExactAlarmPermission();
         if (!exactAlarmOk) {
-          debugPrint('⚠️ Exact alarm permission denied');
+          debugPrint('âš ï¸ Exact alarm permission denied');
         }
         
-        // Kiểm tra quyền hiển thị trên ứng dụng khác
+        // Kiá»ƒm tra quyá»n hiá»ƒn thá»‹ trÃªn á»©ng dá»¥ng khÃ¡c
         final canOverlay = await NotificationService().canDrawOverlays();
         final batteryOptimized = await NotificationService().isBatteryOptimized();
         
@@ -1440,23 +1472,23 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
           await showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
-              title: const Text('Cần cấp thêm quyền'),
+              title: const Text('Cáº§n cáº¥p thÃªm quyá»n'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Để nhắc nhở hiện full màn hình khi khóa màn hình, cần bật:'),
+                  const Text('Äá»ƒ nháº¯c nhá»Ÿ hiá»‡n full mÃ n hÃ¬nh khi khÃ³a mÃ n hÃ¬nh, cáº§n báº­t:'),
                   const SizedBox(height: 12),
                   if (!canOverlay) 
-                    const Text('• Hiển thị trên ứng dụng khác'),
+                    const Text('â€¢ Hiá»ƒn thá»‹ trÃªn á»©ng dá»¥ng khÃ¡c'),
                   if (batteryOptimized)
-                    const Text('• Tắt tối ưu pin cho BetterME'),
+                    const Text('â€¢ Táº¯t tá»‘i Æ°u pin cho BetterME'),
                 ],
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Để sau'),
+                  child: const Text('Äá»ƒ sau'),
                 ),
                 if (!canOverlay)
                   ElevatedButton(
@@ -1464,7 +1496,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                       Navigator.pop(ctx);
                       NotificationService().openOverlaySettings();
                     },
-                    child: const Text('Cấp quyền overlay'),
+                    child: const Text('Cáº¥p quyá»n overlay'),
                   ),
                 if (canOverlay && batteryOptimized)
                   ElevatedButton(
@@ -1472,7 +1504,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                       Navigator.pop(ctx);
                       NotificationService().openBatterySettings();
                     },
-                    child: const Text('Tắt tối ưu pin'),
+                    child: const Text('Táº¯t tá»‘i Æ°u pin'),
                   ),
               ],
             ),
@@ -1482,11 +1514,11 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
       
       final interval = _getIntervalDuration();
       
-      // Lên lịch notification
+      // LÃªn lá»‹ch notification
       final scheduledCount = await NotificationService().schedulePeriodicNotification(
         id: 1,
-        title: 'Đã đến uống nước!',
-        body: 'Gợi ý: ${_suggestedAmountPerDrink}ml. Uống ngay!',
+        title: 'ÄÃ£ Ä‘áº¿n uá»‘ng nÆ°á»›c!',
+        body: 'Gá»£i Ã½: ${_suggestedAmountPerDrink}ml. Uá»‘ng ngay!',
         interval: interval,
         payload: 'water_reminder',
       );
@@ -1494,20 +1526,20 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Không lên lịch được nhắc nhở. Vui lòng kiểm tra quyền thông báo.'),
+              content: Text('KhÃ´ng lÃªn lá»‹ch Ä‘Æ°á»£c nháº¯c nhá»Ÿ. Vui lÃ²ng kiá»ƒm tra quyá»n thÃ´ng bÃ¡o.'),
             ),
           );
         }
         return false;
       }
 
-      debugPrint('✅ Background notifications scheduled: $scheduledCount items');
+      debugPrint('âœ… Background notifications scheduled: $scheduledCount items');
       return true;
     } catch (e) {
-      debugPrint('❌ Error scheduling notifications: $e');
+      debugPrint('âŒ Error scheduling notifications: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Lỗi lên lịch nhắc nhở: $e')),
+          SnackBar(content: Text('Lá»—i lÃªn lá»‹ch nháº¯c nhá»Ÿ: $e')),
         );
       }
       return false;
@@ -1519,19 +1551,19 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     await NotificationService().stopWaterReminder();
   }
 
-  /// Cập nhật chế độ thông báo + re-schedule notifications ngay
+  /// Cáº­p nháº­t cháº¿ Ä‘á»™ thÃ´ng bÃ¡o + re-schedule notifications ngay
   Future<void> _updateNotificationMode(String mode) async {
     setState(() => _notificationMode = mode);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('water_notification_mode', mode);
     
-    // Re-schedule notifications với mode mới
+    // Re-schedule notifications vá»›i mode má»›i
     if (_reminderEnabled) {
       await _scheduleBackgroundNotifications();
     }
   }
 
-  /// Dialog cho người dùng chọn số ml khi bấm "Uống ngay"
+  /// Dialog cho ngÆ°á»i dÃ¹ng chá»n sá»‘ ml khi báº¥m "Uá»‘ng ngay"
   void _showQuickWaterSelectDialog() {
     showModalBottomSheet(
       context: context,
@@ -1545,12 +1577,12 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                '💧 Chọn lượng nước bạn uống',
+                'ðŸ’§ Chá»n lÆ°á»£ng nÆ°á»›c báº¡n uá»‘ng',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               Text(
-                'Gợi ý: ${_suggestedAmountPerDrink}ml',
+                'Gá»£i Ã½: ${_suggestedAmountPerDrink}ml',
                 style: TextStyle(color: Colors.grey[600]),
               ),
               const SizedBox(height: 20),
@@ -1580,7 +1612,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                   Navigator.pop(context);
                   _showCustomAmountDialog();
                 },
-                child: const Text('Nhập số khác'),
+                child: const Text('Nháº­p sá»‘ khÃ¡c'),
               ),
               const SizedBox(height: 8),
             ],
@@ -1592,14 +1624,14 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
 
   double get _progress => _dailyGoalMl > 0 ? _currentMl / _dailyGoalMl : 0;
   
-  // Tính lượng nước gợi ý mỗi lần uống - TỰ ĐỘNG ĐIỀU CHỈNH
+  // TÃ­nh lÆ°á»£ng nÆ°á»›c gá»£i Ã½ má»—i láº§n uá»‘ng - Tá»° Äá»˜NG ÄIá»€U CHá»ˆNH
   int get _suggestedAmountPerDrink {
     final remaining = _dailyGoalMl - _currentMl;
-    if (remaining <= 0) return 200; // Đã đạt mục tiêu
+    if (remaining <= 0) return 200; // ÄÃ£ Ä‘áº¡t má»¥c tiÃªu
     
-    // Tính số lần nhắc còn lại đến 22:00
+    // TÃ­nh sá»‘ láº§n nháº¯c cÃ²n láº¡i Ä‘áº¿n 22:00
     final now = DateTime.now();
-    final endOfDay = DateTime(now.year, now.month, now.day, 22, 0); // Giả sử ngừng uống trước 22h
+    final endOfDay = DateTime(now.year, now.month, now.day, 22, 0); // Giáº£ sá»­ ngá»«ng uá»‘ng trÆ°á»›c 22h
     
     if (now.isAfter(endOfDay)) return remaining.clamp(100, 500);
     
@@ -1609,13 +1641,13 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     
     if (remainingReminders <= 0) return remaining.clamp(100, 500);
     
-    // Chia đều lượng nước còn lại cho số lần nhắc còn lại
+    // Chia Ä‘á»u lÆ°á»£ng nÆ°á»›c cÃ²n láº¡i cho sá»‘ láº§n nháº¯c cÃ²n láº¡i
     final suggested = (remaining / remainingReminders).round();
-    return suggested.clamp(100, 500); // Min 100ml, max 500ml mỗi lần
+    return suggested.clamp(100, 500); // Min 100ml, max 500ml má»—i láº§n
   }
 
   void _addWater(int ml) {
-    // Kiểm tra nếu đã đủ mục tiêu và chưa hỏi
+    // Kiá»ƒm tra náº¿u Ä‘Ã£ Ä‘á»§ má»¥c tiÃªu vÃ  chÆ°a há»i
     if (_currentMl >= _dailyGoalMl && !_hasAskedContinue) {
       _showContinueDialog(ml);
       return;
@@ -1630,41 +1662,41 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
       });
     });
     
-    // Sync lên SharedPreferences để HomeScreen đọc được
+    // Sync lÃªn SharedPreferences Ä‘á»ƒ HomeScreen Ä‘á»c Ä‘Æ°á»£c
     _syncWaterProgress();
     
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Đã uống ${ml}ml'),
+        content: Text('ÄÃ£ uá»‘ng ${ml}ml'),
         backgroundColor: Colors.blue,
         duration: const Duration(seconds: 1),
       ),
     );
     
-    // Chỉ hiển thị chúc mừng khi vừa đạt mục tiêu
+    // Chá»‰ hiá»ƒn thá»‹ chÃºc má»«ng khi vá»«a Ä‘áº¡t má»¥c tiÃªu
     if (_currentMl >= _dailyGoalMl && _currentMl - ml < _dailyGoalMl) {
       _showCongratulations();
     }
   }
   
-  /// Sync tiến độ uống nước lên SharedPreferences + Firestore
+  /// Sync tiáº¿n Ä‘á»™ uá»‘ng nÆ°á»›c lÃªn SharedPreferences + Firestore
   Future<void> _syncWaterProgress() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('water_current_ml', _currentMl);
     await prefs.setInt('water_daily_goal_ml', _dailyGoalMl);
     await prefs.setString('water_last_date', _todayKey);
     
-    // Lưu lịch sử entries hôm nay
+    // LÆ°u lá»‹ch sá»­ entries hÃ´m nay
     final entries = _todayHistory.map((e) {
       final time = e['time'] as DateTime;
       return '${time.millisecondsSinceEpoch}|${e['amount']}';
     }).toList();
     await prefs.setStringList('water_today_entries', entries);
     
-    // Lưu tổng ml hôm nay vào history key
+    // LÆ°u tá»•ng ml hÃ´m nay vÃ o history key
     await prefs.setInt('water_history_$_todayKey', _currentMl);
     
-    // Đồng bộ lên Firestore
+    // Äá»“ng bá»™ lÃªn Firestore
     FirestoreService().saveWaterDaily(
       dateKey: _todayKey,
       totalMl: _currentMl,
@@ -1677,15 +1709,15 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('🎉 Đã đủ mục tiêu!'),
+        title: const Text('ðŸŽ‰ ÄÃ£ Ä‘á»§ má»¥c tiÃªu!'),
         content: Text(
-          'Bạn đã uống đủ ${_dailyGoalMl}ml hôm nay.\n'
-          'Bạn có muốn tiếp tục uống thêm không?'
+          'Báº¡n Ä‘Ã£ uá»‘ng Ä‘á»§ ${_dailyGoalMl}ml hÃ´m nay.\n'
+          'Báº¡n cÃ³ muá»‘n tiáº¿p tá»¥c uá»‘ng thÃªm khÃ´ng?'
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Không'),
+            child: const Text('KhÃ´ng'),
           ),
           ElevatedButton(
             onPressed: () {
@@ -1695,7 +1727,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
               });
               _addWater(ml);
             },
-            child: const Text('Uống tiếp'),
+            child: const Text('Uá»‘ng tiáº¿p'),
           ),
         ],
       ),
@@ -1706,10 +1738,10 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('🎉 Tuyệt vời!'),
+        title: const Text('ðŸŽ‰ Tuyá»‡t vá»i!'),
         content: const Text(
-          'Bạn đã hoàn thành mục tiêu uống nước hôm nay!\n'
-          'Tiếp tục duy trì nhé!'
+          'Báº¡n Ä‘Ã£ hoÃ n thÃ nh má»¥c tiÃªu uá»‘ng nÆ°á»›c hÃ´m nay!\n'
+          'Tiáº¿p tá»¥c duy trÃ¬ nhÃ©!'
         ),
         actions: [
           TextButton(
@@ -1728,7 +1760,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Sửa lượng nước'),
+        title: const Text('Sá»­a lÆ°á»£ng nÆ°á»›c'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1736,13 +1768,13 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
               controller: controller,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                labelText: 'Lượng nước (ml)',
+                labelText: 'LÆ°á»£ng nÆ°á»›c (ml)',
                 suffixText: 'ml',
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              'Thời gian: ${_formatTime(entry['time'] as DateTime)}',
+              'Thá»i gian: ${_formatTime(entry['time'] as DateTime)}',
               style: TextStyle(color: Colors.grey[600], fontSize: 12),
             ),
           ],
@@ -1750,21 +1782,21 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
         actions: [
           TextButton(
             onPressed: () {
-              // Xóa entry
+              // XÃ³a entry
               setState(() {
                 _currentMl -= entry['amount'] as int;
                 _todayHistory.removeAt(index);
               });
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Đã xóa')),
+                const SnackBar(content: Text('ÄÃ£ xÃ³a')),
               );
             },
-            child: const Text('Xóa', style: TextStyle(color: Colors.red)),
+            child: const Text('XÃ³a', style: TextStyle(color: Colors.red)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Hủy'),
+            child: const Text('Há»§y'),
           ),
           ElevatedButton(
             onPressed: () {
@@ -1776,11 +1808,11 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                 });
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Đã cập nhật')),
+                  const SnackBar(content: Text('ÄÃ£ cáº­p nháº­t')),
                 );
               }
             },
-            child: const Text('Lưu'),
+            child: const Text('LÆ°u'),
           ),
         ],
       ),
@@ -1791,12 +1823,12 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Đặt lại hôm nay?'),
-        content: const Text('Tất cả lịch sử uống nước hôm nay sẽ bị xóa.'),
+        title: const Text('Äáº·t láº¡i hÃ´m nay?'),
+        content: const Text('Táº¥t cáº£ lá»‹ch sá»­ uá»‘ng nÆ°á»›c hÃ´m nay sáº½ bá»‹ xÃ³a.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Hủy'),
+            child: const Text('Há»§y'),
           ),
           ElevatedButton(
             onPressed: () {
@@ -1807,11 +1839,11 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
               });
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Đã đặt lại')),
+                const SnackBar(content: Text('ÄÃ£ Ä‘áº·t láº¡i')),
               );
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Đặt lại'),
+            child: const Text('Äáº·t láº¡i'),
           ),
         ],
       ),
@@ -1826,13 +1858,13 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nhắc nhở uống nước'),
+        title: const Text('Nháº¯c nhá»Ÿ uá»‘ng nÆ°á»›c'),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
-            Tab(text: 'Uống nước'),
-            Tab(text: 'Nhắc nhở'),
-            Tab(text: 'Lịch sử'),
+            Tab(text: 'Uá»‘ng nÆ°á»›c'),
+            Tab(text: 'Nháº¯c nhá»Ÿ'),
+            Tab(text: 'Lá»‹ch sá»­'),
           ],
         ),
       ),
@@ -1847,70 +1879,22 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     );
   }
 
-  // Tab 1: Uống nước
+  // Tab 1: Uá»‘ng nÆ°á»›c
   Widget _buildDrinkTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
-          // Progress Circle (đưa lên đầu)
-          SizedBox(
-            width: 180,
-            height: 180,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 180,
-                  height: 180,
-                  child: CircularProgressIndicator(
-                    value: _progress.clamp(0.0, 1.0),
-                    strokeWidth: 12,
-                    backgroundColor: Colors.blue.withOpacity(0.1),
-                    valueColor: AlwaysStoppedAnimation(
-                      _progress >= 1.0 ? Colors.green : Colors.blue,
-                    ),
-                  ),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '${_currentMl}ml',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: _progress >= 1.0 ? Colors.green : Colors.blue,
-                      ),
-                    ),
-                    Text(
-                      '/ ${_dailyGoalMl}ml',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+          // Ly nước rót đầy dần
+          WaterGlassWidget(
+            progress: _progress,
+            currentMl: _currentMl,
+            goalMl: _dailyGoalMl,
           ),
-          _progress >= 1.0
-              ? const Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: Text(
-                    'Hoàn thành mục tiêu!',
-                    style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
-                  ),
-                )
-              : Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(
-                    'Còn ${_dailyGoalMl - _currentMl}ml nữa',
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                ),
           const SizedBox(height: 24),
           
-          // Chọn mục tiêu
+          
+          // Chá»n má»¥c tiÃªu
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -1918,7 +1902,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Mục tiêu hôm nay',
+                    'Má»¥c tiÃªu hÃ´m nay',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 12),
@@ -1944,7 +1928,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                       foregroundColor: Colors.blue,
                       visualDensity: VisualDensity.compact,
                     ),
-                    child: const Text('Tùy chỉnh'),
+                    child: const Text('TÃ¹y chá»‰nh'),
                   ),
                 ],
               ),
@@ -1954,7 +1938,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
           
           // Quick add buttons
           Text(
-            'Chọn lượng nước',
+            'Chá»n lÆ°á»£ng nÆ°á»›c',
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 12),
@@ -1970,7 +1954,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
           OutlinedButton(
             onPressed: _showCustomAmountDialog,
             style: OutlinedButton.styleFrom(foregroundColor: Colors.blue),
-            child: const Text('Nhập số khác'),
+            child: const Text('Nháº­p sá»‘ khÃ¡c'),
           ),
           
           const SizedBox(height: 24),
@@ -1981,12 +1965,12 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Hôm nay (${_todayHistory.length} lần)',
+                  'HÃ´m nay (${_todayHistory.length} láº§n)',
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
                 TextButton(
                   onPressed: () => _tabController.animateTo(2),
-                  child: const Text('Xem chi tiết →'),
+                  child: const Text('Xem chi tiáº¿t â†’'),
                 ),
               ],
             ),
@@ -1994,7 +1978,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
           
           const SizedBox(height: 16),
           
-          // Thông tin người dùng (đưa xuống cuối)
+          // ThÃ´ng tin ngÆ°á»i dÃ¹ng (Ä‘Æ°a xuá»‘ng cuá»‘i)
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -2005,26 +1989,26 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Thông tin của bạn',
+                        'ThÃ´ng tin cá»§a báº¡n',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       TextButton(
                         onPressed: _showEditProfileDialog,
-                        child: const Text('Sửa'),
+                        child: const Text('Sá»­a'),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      Text('Cân nặng: ${_weight.toStringAsFixed(1)} kg'),
+                      Text('CÃ¢n náº·ng: ${_weight.toStringAsFixed(1)} kg'),
                       const SizedBox(width: 24),
-                      Text('Chiều cao: ${_height.toStringAsFixed(0)} cm'),
+                      Text('Chiá»u cao: ${_height.toStringAsFixed(0)} cm'),
                     ],
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Gợi ý: ${(_weight * 33).round()}ml/ngày (33ml × cân nặng)',
+                    'Gá»£i Ã½: ${(_weight * 33).round()}ml/ngÃ y (33ml Ã— cÃ¢n náº·ng)',
                     style: TextStyle(color: Colors.grey[600], fontSize: 12),
                   ),
                 ],
@@ -2052,7 +2036,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
         children: [
           Text('${ml}ml', style: const TextStyle(fontWeight: FontWeight.bold)),
           if (isSuggested) 
-            const Text('Gợi ý', style: TextStyle(fontSize: 9)),
+            const Text('Gá»£i Ã½', style: TextStyle(fontSize: 9)),
         ],
       ),
     );
@@ -2065,7 +2049,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Thông tin cá nhân'),
+        title: const Text('ThÃ´ng tin cÃ¡ nhÃ¢n'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -2073,7 +2057,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
               controller: weightController,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                labelText: 'Cân nặng',
+                labelText: 'CÃ¢n náº·ng',
                 suffixText: 'kg',
               ),
             ),
@@ -2082,7 +2066,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
               controller: heightController,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                labelText: 'Chiều cao',
+                labelText: 'Chiá»u cao',
                 suffixText: 'cm',
               ),
             ),
@@ -2091,7 +2075,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Hủy'),
+            child: const Text('Há»§y'),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -2101,11 +2085,11 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                 final prefs = await SharedPreferences.getInstance();
                 final hs = HealthService();
                 
-                // Lưu vào health service (user_height_cm + weight_history)
+                // LÆ°u vÃ o health service (user_height_cm + weight_history)
                 await hs.saveHeight(height);
                 await hs.saveWeight(weight);
                 
-                // Đồng bộ sang profile keys
+                // Äá»“ng bá»™ sang profile keys
                 await prefs.setString('profile_height', height.toStringAsFixed(0));
                 await prefs.setString('profile_weight', weight.toStringAsFixed(1));
                 
@@ -2116,7 +2100,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                 if (mounted) Navigator.pop(context);
               }
             },
-            child: const Text('Lưu'),
+            child: const Text('LÆ°u'),
           ),
         ],
       ),
@@ -2128,19 +2112,19 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Mục tiêu tùy chỉnh'),
+        title: const Text('Má»¥c tiÃªu tÃ¹y chá»‰nh'),
         content: TextField(
           controller: controller,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
-            labelText: 'Lượng nước',
+            labelText: 'LÆ°á»£ng nÆ°á»›c',
             suffixText: 'ml',
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Hủy'),
+            child: const Text('Há»§y'),
           ),
           ElevatedButton(
             onPressed: () {
@@ -2150,7 +2134,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                 Navigator.pop(context);
               }
             },
-            child: const Text('Lưu'),
+            child: const Text('LÆ°u'),
           ),
         ],
       ),
@@ -2162,20 +2146,20 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Nhập lượng nước'),
+        title: const Text('Nháº­p lÆ°á»£ng nÆ°á»›c'),
         content: TextField(
           controller: controller,
           keyboardType: TextInputType.number,
           autofocus: true,
           decoration: const InputDecoration(
-            labelText: 'Số ml',
+            labelText: 'Sá»‘ ml',
             suffixText: 'ml',
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Hủy'),
+            child: const Text('Há»§y'),
           ),
           ElevatedButton(
             onPressed: () {
@@ -2185,28 +2169,28 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                 _addWater(ml);
               }
             },
-            child: const Text('Thêm'),
+            child: const Text('ThÃªm'),
           ),
         ],
       ),
     );
   }
 
-  // Tab 2: Nhắc nhở
+  // Tab 2: Nháº¯c nhá»Ÿ
   Widget _buildRemindersTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Bật/tắt nhắc nhở
+          // Báº­t/táº¯t nháº¯c nhá»Ÿ
           Card(
             child: SwitchListTile(
-              title: const Text('Nhắc nhở uống nước'),
+              title: const Text('Nháº¯c nhá»Ÿ uá»‘ng nÆ°á»›c'),
               subtitle: Text(
                 _reminderEnabled 
-                    ? 'Mỗi ${_getIntervalLabel(_reminderIntervalMinutes)} • Bắt đầu từ ${_reminderStartedAt != null ? _formatTime(_reminderStartedAt!) : "bây giờ"}'
-                    : 'Đã tắt',
+                    ? 'Má»—i ${_getIntervalLabel(_reminderIntervalMinutes)} â€¢ Báº¯t Ä‘áº§u tá»« ${_reminderStartedAt != null ? _formatTime(_reminderStartedAt!) : "bÃ¢y giá»"}'
+                    : 'ÄÃ£ táº¯t',
               ),
               value: _reminderEnabled,
               onChanged: (value) async {
@@ -2227,12 +2211,12 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                   if (success && mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('✅ Đã bật nhắc nhở mỗi ${_getIntervalLabel(_reminderIntervalMinutes)}'),
+                        content: Text('âœ… ÄÃ£ báº­t nháº¯c nhá»Ÿ má»—i ${_getIntervalLabel(_reminderIntervalMinutes)}'),
                         duration: const Duration(seconds: 2),
                       ),
                     );
                   } else if (!success && mounted) {
-                    // Revert toggle nếu không lên lịch được
+                    // Revert toggle náº¿u khÃ´ng lÃªn lá»‹ch Ä‘Æ°á»£c
                     setState(() {
                       _reminderEnabled = false;
                       _reminderStartedAt = null;
@@ -2248,9 +2232,9 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
           const SizedBox(height: 16),
           
           if (_reminderEnabled) ...[
-            // Chế độ thông báo
+            // Cháº¿ Ä‘á»™ thÃ´ng bÃ¡o
             Text(
-              'Chế độ thông báo',
+              'Cháº¿ Ä‘á»™ thÃ´ng bÃ¡o',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
@@ -2258,8 +2242,8 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
               child: Column(
                 children: [
                   RadioListTile<String>(
-                    title: const Text('Chuông'),
-                    subtitle: const Text('Phát âm thanh khi nhắc nhở'),
+                    title: const Text('ChuÃ´ng'),
+                    subtitle: const Text('PhÃ¡t Ã¢m thanh khi nháº¯c nhá»Ÿ'),
                     value: 'sound',
                     groupValue: _notificationMode,
                     onChanged: (value) => _updateNotificationMode(value!),
@@ -2267,22 +2251,22 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                   RadioListTile<String>(
                     title: const Text('Rung'),
                     subtitle: Text(Platform.isIOS
-                        ? 'Không âm thanh (rung theo cài đặt iPhone)'
-                        : 'Chỉ rung liên tục, không có âm thanh'),
+                        ? 'KhÃ´ng Ã¢m thanh (rung theo cÃ i Ä‘áº·t iPhone)'
+                        : 'Chá»‰ rung liÃªn tá»¥c, khÃ´ng cÃ³ Ã¢m thanh'),
                     value: 'vibrate',
                     groupValue: _notificationMode,
                     onChanged: (value) => _updateNotificationMode(value!),
                   ),
                   RadioListTile<String>(
-                    title: const Text('Chuông + Rung'),
-                    subtitle: const Text('Cả âm thanh và rung liên tục'),
+                    title: const Text('ChuÃ´ng + Rung'),
+                    subtitle: const Text('Cáº£ Ã¢m thanh vÃ  rung liÃªn tá»¥c'),
                     value: 'both',
                     groupValue: _notificationMode,
                     onChanged: (value) => _updateNotificationMode(value!),
                   ),
                   RadioListTile<String>(
-                    title: const Text('Im lặng'),
-                    subtitle: const Text('Chỉ hiện thông báo'),
+                    title: const Text('Im láº·ng'),
+                    subtitle: const Text('Chá»‰ hiá»‡n thÃ´ng bÃ¡o'),
                     value: 'silent',
                     groupValue: _notificationMode,
                     onChanged: (value) => _updateNotificationMode(value!),
@@ -2292,9 +2276,9 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
             ),
             const SizedBox(height: 16),
             
-            // Khoảng cách nhắc nhở
+            // Khoáº£ng cÃ¡ch nháº¯c nhá»Ÿ
             Text(
-              'Khoảng cách nhắc nhở',
+              'Khoáº£ng cÃ¡ch nháº¯c nhá»Ÿ',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
@@ -2306,7 +2290,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Nhắc mỗi'),
+                        const Text('Nháº¯c má»—i'),
                         DropdownButton<int>(
                           value: _reminderIntervalMinutes,
                           items: _intervalOptions.map((opt) => 
@@ -2334,7 +2318,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
             ),
             const SizedBox(height: 16),
             
-            // Thông tin tự động điều chỉnh
+            // ThÃ´ng tin tá»± Ä‘á»™ng Ä‘iá»u chá»‰nh
             Card(
               color: Colors.green.withOpacity(0.05),
               child: Padding(
@@ -2347,7 +2331,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                         const Icon(Icons.auto_awesome, color: Colors.green, size: 20),
                         const SizedBox(width: 8),
                         Text(
-                          'Tự động điều chỉnh',
+                          'Tá»± Ä‘á»™ng Ä‘iá»u chá»‰nh',
                           style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.bold,
                             color: Colors.green[700],
@@ -2356,14 +2340,14 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                       ],
                     ),
                     const SizedBox(height: 12),
-                    _buildInfoRow(Icons.water_drop, 'Đã uống', '$_currentMl / $_dailyGoalMl ml'),
+                    _buildInfoRow(Icons.water_drop, 'ÄÃ£ uá»‘ng', '$_currentMl / $_dailyGoalMl ml'),
                     const SizedBox(height: 4),
-                    _buildInfoRow(Icons.local_drink, 'Còn lại', '${(_dailyGoalMl - _currentMl).clamp(0, _dailyGoalMl)} ml'),
+                    _buildInfoRow(Icons.local_drink, 'CÃ²n láº¡i', '${(_dailyGoalMl - _currentMl).clamp(0, _dailyGoalMl)} ml'),
                     const SizedBox(height: 4),
-                    _buildInfoRow(Icons.recommend, 'Gợi ý lần tới', '${_suggestedAmountPerDrink} ml'),
+                    _buildInfoRow(Icons.recommend, 'Gá»£i Ã½ láº§n tá»›i', '${_suggestedAmountPerDrink} ml'),
                     if (_todayHistory.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      _buildInfoRow(Icons.trending_up, 'TB mỗi lần', '${(_currentMl / _todayHistory.length).round()} ml'),
+                      _buildInfoRow(Icons.trending_up, 'TB má»—i láº§n', '${(_currentMl / _todayHistory.length).round()} ml'),
                     ],
                   ],
                 ),
@@ -2371,7 +2355,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
             ),
             const SizedBox(height: 16),
             
-            // Gợi ý khoa học
+            // Gá»£i Ã½ khoa há»c
             Card(
               color: Colors.blue.withOpacity(0.05),
               child: Padding(
@@ -2380,18 +2364,18 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Gợi ý khoa học',
+                      'Gá»£i Ã½ khoa há»c',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      '• Lượng gợi ý tự điều chỉnh theo lượng đã uống\n'
-                      '• Uống nhiều hơn → lần sau gợi ý ít hơn\n'
-                      '• Uống ít hơn → lần sau gợi ý nhiều hơn\n'
-                      '• Nên uống nước ấm vào buổi sáng\n'
-                      '• Tránh uống quá nhiều trước khi ngủ',
+                      'â€¢ LÆ°á»£ng gá»£i Ã½ tá»± Ä‘iá»u chá»‰nh theo lÆ°á»£ng Ä‘Ã£ uá»‘ng\n'
+                      'â€¢ Uá»‘ng nhiá»u hÆ¡n â†’ láº§n sau gá»£i Ã½ Ã­t hÆ¡n\n'
+                      'â€¢ Uá»‘ng Ã­t hÆ¡n â†’ láº§n sau gá»£i Ã½ nhiá»u hÆ¡n\n'
+                      'â€¢ NÃªn uá»‘ng nÆ°á»›c áº¥m vÃ o buá»•i sÃ¡ng\n'
+                      'â€¢ TrÃ¡nh uá»‘ng quÃ¡ nhiá»u trÆ°á»›c khi ngá»§',
                       style: TextStyle(color: Colors.grey[700], height: 1.5),
                     ),
                   ],
@@ -2416,19 +2400,19 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
     );
   }
 
-  // Tab 3: Lịch sử
+  // Tab 3: Lá»‹ch sá»­
   Widget _buildHistoryTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Lịch sử hôm nay
+          // Lá»‹ch sá»­ hÃ´m nay
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Hôm nay',
+                'HÃ´m nay',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               Row(
@@ -2457,7 +2441,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                 padding: const EdgeInsets.all(32),
                 child: Center(
                   child: Text(
-                    'Chưa uống nước hôm nay',
+                    'ChÆ°a uá»‘ng nÆ°á»›c hÃ´m nay',
                     style: TextStyle(color: Colors.grey[600]),
                   ),
                 ),
@@ -2480,7 +2464,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
                     subtitle: Text(_formatTime(time)),
                     trailing: TextButton(
                       onPressed: () => _editHistoryEntry(actualIndex),
-                      child: const Text('Sửa'),
+                      child: const Text('Sá»­a'),
                     ),
                   );
                 },
@@ -2491,7 +2475,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
           
           // Weekly chart
           Text(
-            'Tuần này',
+            'Tuáº§n nÃ y',
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 16),
@@ -2574,7 +2558,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
           
           // Stats
           Text(
-            'Thống kê',
+            'Thá»‘ng kÃª',
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 12),
@@ -2582,7 +2566,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
             children: [
               Expanded(
                 child: _buildStatCard(
-                  'Trung bình',
+                  'Trung bÃ¬nh',
                   '${_getAverageIntake()}ml',
                   Colors.blue,
                 ),
@@ -2591,7 +2575,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
               Expanded(
                 child: _buildStatCard(
                   'Streak',
-                  '${_getStreak()} ngày',
+                  '${_getStreak()} ngÃ y',
                   Colors.orange,
                 ),
               ),
@@ -2602,7 +2586,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
             children: [
               Expanded(
                 child: _buildStatCard(
-                  'Hoàn thành',
+                  'HoÃ n thÃ nh',
                   '${_getCompletedDays()}/7',
                   Colors.green,
                 ),
@@ -2610,7 +2594,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
               const SizedBox(width: 8),
               Expanded(
                 child: _buildStatCard(
-                  'Cao nhất',
+                  'Cao nháº¥t',
                   '${_getMaxIntake()}ml',
                   Colors.purple,
                 ),
@@ -2686,7 +2670,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
   }
 }
 
-/// Expense Screen - Quản lý chi tiêu
+/// Expense Screen - Quáº£n lÃ½ chi tiÃªu
 class ExpenseScreen extends StatefulWidget {
   const ExpenseScreen({super.key});
 
@@ -2713,9 +2697,9 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     _loadTransactions();
   }
 
-  /// Load giao dịch từ SharedPreferences, rồi sync từ Firestore
+  /// Load giao dá»‹ch tá»« SharedPreferences, rá»“i sync tá»« Firestore
   Future<void> _loadTransactions() async {
-    // Load local trước cho nhanh
+    // Load local trÆ°á»›c cho nhanh
     final prefs = await SharedPreferences.getInstance();
     final data = prefs.getStringList('expense_transactions') ?? [];
     
@@ -2739,7 +2723,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       _transactions.addAll(loaded);
     });
     
-    // Sync từ Firestore nếu local trống
+    // Sync tá»« Firestore náº¿u local trá»‘ng
     if (loaded.isEmpty) {
       final cloudData = await FirestoreService().loadTransactions();
       if (cloudData.isNotEmpty && mounted) {
@@ -2747,7 +2731,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
           _transactions.clear();
           _transactions.addAll(cloudData);
         });
-        // Lưu lại local
+        // LÆ°u láº¡i local
         final localData = _transactions.map((t) {
           final date = t['date'] as DateTime;
           return '${t['type']}|${t['amount']}|${t['category']}|${t['note'] ?? ''}|${date.millisecondsSinceEpoch}';
@@ -2757,7 +2741,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     }
   }
 
-  /// Lưu giao dịch vào SharedPreferences + Firestore
+  /// LÆ°u giao dá»‹ch vÃ o SharedPreferences + Firestore
   Future<void> _saveTransactions() async {
     final prefs = await SharedPreferences.getInstance();
     final data = _transactions.map((t) {
@@ -2766,17 +2750,17 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     }).toList();
     await prefs.setStringList('expense_transactions', data);
     
-    // Đồng bộ lên Firestore
+    // Äá»“ng bá»™ lÃªn Firestore
     FirestoreService().saveTransactions(_transactions);
   }
 
   void _showAddTransactionDialog({bool isIncome = false}) {
     final amountController = TextEditingController();
     final noteController = TextEditingController();
-    String selectedCategory = isIncome ? 'Lương' : 'Ăn uống';
+    String selectedCategory = isIncome ? 'LÆ°Æ¡ng' : 'Ä‚n uá»‘ng';
     
-    final incomeCategories = ['Lương', 'Thưởng', 'Đầu tư', 'Khác'];
-    final expenseCategories = ['Ăn uống', 'Di chuyển', 'Mua sắm', 'Giải trí', 'Hóa đơn', 'Khác'];
+    final incomeCategories = ['LÆ°Æ¡ng', 'ThÆ°á»Ÿng', 'Äáº§u tÆ°', 'KhÃ¡c'];
+    final expenseCategories = ['Ä‚n uá»‘ng', 'Di chuyá»ƒn', 'Mua sáº¯m', 'Giáº£i trÃ­', 'HÃ³a Ä‘Æ¡n', 'KhÃ¡c'];
     
     showModalBottomSheet(
       context: context,
@@ -2800,7 +2784,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    isIncome ? 'Thêm thu nhập' : 'Thêm chi tiêu',
+                    isIncome ? 'ThÃªm thu nháº­p' : 'ThÃªm chi tiÃªu',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       color: isIncome ? Colors.green : Colors.red,
                     ),
@@ -2818,8 +2802,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                 controller: amountController,
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
-                  labelText: 'Số tiền',
-                  prefixText: 'đ ',
+                  labelText: 'Sá»‘ tiá»n',
+                  prefixText: 'Ä‘ ',
                   prefixIcon: Icon(
                     isIncome ? Icons.add_circle : Icons.remove_circle,
                     color: isIncome ? Colors.green : Colors.red,
@@ -2829,7 +2813,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
               const SizedBox(height: 16),
               
               // Category
-              Text('Danh mục', style: Theme.of(context).textTheme.titleSmall),
+              Text('Danh má»¥c', style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -2854,7 +2838,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
               TextField(
                 controller: noteController,
                 decoration: const InputDecoration(
-                  labelText: 'Ghi chú (tùy chọn)',
+                  labelText: 'Ghi chÃº (tÃ¹y chá»n)',
                   prefixIcon: Icon(Icons.note),
                 ),
               ),
@@ -2883,8 +2867,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                         SnackBar(
                           content: Text(
                             isIncome 
-                                ? 'Đã thêm thu nhập ${_formatCurrency(amount)}'
-                                : 'Đã thêm chi tiêu ${_formatCurrency(amount)}',
+                                ? 'ÄÃ£ thÃªm thu nháº­p ${_formatCurrency(amount)}'
+                                : 'ÄÃ£ thÃªm chi tiÃªu ${_formatCurrency(amount)}',
                           ),
                           backgroundColor: isIncome ? Colors.green : Colors.red,
                         ),
@@ -2894,7 +2878,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isIncome ? Colors.green : Colors.red,
                   ),
-                  child: const Text('Lưu'),
+                  child: const Text('LÆ°u'),
                 ),
               ),
               const SizedBox(height: 24),
@@ -2911,14 +2895,14 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     } else if (amount >= 1000) {
       return '${(amount / 1000).toStringAsFixed(0)}k';
     }
-    return '${amount.toStringAsFixed(0)}đ';
+    return '${amount.toStringAsFixed(0)}Ä‘';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Quản lý chi tiêu'),
+        title: const Text('Quáº£n lÃ½ chi tiÃªu'),
       ),
       body: Column(
         children: [
@@ -2938,7 +2922,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
             child: Column(
               children: [
                 Text(
-                  'Số dư',
+                  'Sá»‘ dÆ°',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Colors.white70,
                   ),
@@ -2957,7 +2941,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                   children: [
                     _buildSummaryItem(
                       context,
-                      'Thu nhập',
+                      'Thu nháº­p',
                       _formatCurrency(_totalIncome),
                       Icons.arrow_downward,
                       Colors.greenAccent,
@@ -2969,7 +2953,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                     ),
                     _buildSummaryItem(
                       context,
-                      'Chi tiêu',
+                      'Chi tiÃªu',
                       _formatCurrency(_totalExpense),
                       Icons.arrow_upward,
                       Colors.redAccent,
@@ -2989,7 +2973,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                   child: ElevatedButton.icon(
                     onPressed: () => _showAddTransactionDialog(isIncome: true),
                     icon: const Icon(Icons.add),
-                    label: const Text('Thu nhập'),
+                    label: const Text('Thu nháº­p'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -3001,7 +2985,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                   child: ElevatedButton.icon(
                     onPressed: () => _showAddTransactionDialog(isIncome: false),
                     icon: const Icon(Icons.remove),
-                    label: const Text('Chi tiêu'),
+                    label: const Text('Chi tiÃªu'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -3028,14 +3012,14 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          'Chưa có giao dịch nào',
+                          'ChÆ°a cÃ³ giao dá»‹ch nÃ o',
                           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                             color: AppColors.grey,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Bấm nút trên để thêm thu nhập/chi tiêu',
+                          'Báº¥m nÃºt trÃªn Ä‘á»ƒ thÃªm thu nháº­p/chi tiÃªu',
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: AppColors.grey,
                           ),
@@ -3066,7 +3050,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                           });
                           _saveTransactions();
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Đã xóa giao dịch')),
+                            const SnackBar(content: Text('ÄÃ£ xÃ³a giao dá»‹ch')),
                           );
                         },
                         child: Card(
@@ -3142,3 +3126,4 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     );
   }
 }
+

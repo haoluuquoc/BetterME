@@ -38,6 +38,9 @@ class HealthService {
   HealthService._();
   factory HealthService() => _instance;
 
+  static const Duration _realtimeReconcileInterval = Duration(seconds: 2);
+  static const Duration _historySyncInterval = Duration(seconds: 20);
+
   static const MethodChannel _channel = MethodChannel('com.betterme.betterme/app');
 
   final Health _health = Health();
@@ -54,6 +57,7 @@ class HealthService {
   int? _lastRawSteps;
   Timer? _saveDebounceTimer;
   Timer? _reconcileTimer;
+  DateTime? _lastHistoryPersistAt;
 
   bool _initialized = false;
 
@@ -68,6 +72,7 @@ class HealthService {
     _todaySteps = 0;
     _lastSavedSteps = null;
     _lastRawSteps = null;
+    _lastHistoryPersistAt = null;
     _initialized = false; // Cho phép init() chạy lại
     _stepsController.add(0);
   }
@@ -428,6 +433,7 @@ class HealthService {
   Future<StepsRefreshResult> refreshStepsFromHealth({
     bool requestPermission = true,
     bool pullFromFirestore = false,
+    bool saveHistory = true,
   }) async {
     final readResult =
         await _getStepsFromHealth(requestPermission: requestPermission);
@@ -455,7 +461,17 @@ class HealthService {
     final prefs = await SharedPreferences.getInstance();
     final todayKey = _todayKey();
     await _persistTodaySteps(prefs, todayKey, steps);
-    await saveTodayStepsToHistory();
+    if (saveHistory) {
+      await saveTodayStepsToHistory();
+    } else {
+      final now = DateTime.now();
+      final shouldPersistHistory = _lastHistoryPersistAt == null ||
+          now.difference(_lastHistoryPersistAt!).inSeconds >=
+              _historySyncInterval.inSeconds;
+      if (shouldPersistHistory) {
+        await saveTodayStepsToHistory();
+      }
+    }
     return StepsRefreshResult.success(steps);
   }
 
@@ -474,10 +490,14 @@ class HealthService {
 
   void _startPeriodicReconcile() {
     _reconcileTimer?.cancel();
-    _reconcileTimer = Timer.periodic(const Duration(seconds: 20), (_) async {
+    _reconcileTimer =
+        Timer.periodic(_realtimeReconcileInterval, (_) async {
       if (!_initialized) return;
       try {
-        await refreshStepsFromHealth(requestPermission: false);
+        await refreshStepsFromHealth(
+          requestPermission: false,
+          saveHistory: false,
+        );
       } catch (_) {
         // Keep pedometer realtime updates running even if health reconciliation fails.
       }
@@ -631,6 +651,7 @@ class HealthService {
         steps: stepsToSave,
       );
     }
+    _lastHistoryPersistAt = DateTime.now();
     _lastSavedSteps = stepsToSave;
   }
 
