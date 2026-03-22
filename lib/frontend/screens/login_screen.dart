@@ -976,10 +976,14 @@ class _LoginScreenState extends State<LoginScreen>
                         ]
                       : null,
                 ),
-                child: Column(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     // Face ID custom icon
                     _buildFaceIdIcon(),
+                    const SizedBox(width: 16),
+                    // Fingerprint icon
+                    _buildFingerprintIcon(),
                   ],
                 ),
               );
@@ -1021,6 +1025,43 @@ class _LoginScreenState extends State<LoginScreen>
         painter: _FaceIdPainter(
           color: iconColor,
           progress: isEnabled ? _pulseAnimation.value : 0.9,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFingerprintIcon() {
+    final bool isEnabled = _biometricEnabled;
+    final Color iconColor = isEnabled ? _accentPurple : _textMuted;
+
+    return Container(
+      width: 64,
+      height: 64,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: isEnabled
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  _accentBlue.withOpacity(0.2),
+                  _accentPurple.withOpacity(0.15),
+                ],
+              )
+            : null,
+        color: isEnabled ? null : _bgCardLight.withOpacity(0.8),
+        border: Border.all(
+          color: isEnabled
+              ? _accentPurple.withOpacity(0.4)
+              : _borderColor.withOpacity(0.5),
+          width: 1.5,
+        ),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.fingerprint,
+          color: iconColor,
+          size: 38,
         ),
       ),
     );

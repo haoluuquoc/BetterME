@@ -330,17 +330,17 @@ class AuthService {
       final biometrics = await _localAuth.getAvailableBiometrics();
       final hasBiometric = biometrics.isNotEmpty;
 
-      if (hasBiometric) {
-        final biometricAuthenticated = await _localAuth.authenticate(
-          localizedReason:
-              'Authenticate with face or fingerprint to login BetterME',
-          options: const AuthenticationOptions(
-            stickyAuth: true,
-            biometricOnly: true,
-          ),
-        );
-        if (biometricAuthenticated) return true;
-      }
+      if (!hasBiometric) return false;
+
+      final biometricAuthenticated = await _localAuth.authenticate(
+        localizedReason:
+            'Authenticate with face or fingerprint to login BetterME',
+        options: const AuthenticationOptions(
+          stickyAuth: true,
+          biometricOnly: true,
+        ),
+      );
+      if (biometricAuthenticated) return true;
 
       return await _localAuth.authenticate(
         localizedReason: 'Enter PIN to login BetterME',
@@ -350,17 +350,7 @@ class AuthService {
         ),
       );
     } catch (e) {
-      try {
-        return await _localAuth.authenticate(
-          localizedReason: 'Enter PIN to login BetterME',
-          options: const AuthenticationOptions(
-            stickyAuth: true,
-            biometricOnly: false,
-          ),
-        );
-      } catch (_) {
-        return false;
-      }
+      return false;
     }
   }
 
