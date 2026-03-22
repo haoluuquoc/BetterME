@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'app_colors.dart';
 import 'theme_provider.dart';
 
@@ -22,6 +21,7 @@ class AppTheme {
         onSurface: AppColors.onSurface,
       ),
       scaffoldBackgroundColor: AppColors.background,
+      fontFamilyFallback: const <String>['Roboto', 'Noto Sans', 'Arial'],
       
       // AppBar Theme
       appBarTheme: AppBarTheme(
@@ -100,43 +100,43 @@ class AppTheme {
       ),
 
       // Text Theme
-      textTheme: TextTheme(
-        headlineLarge: GoogleFonts.inter(
+      textTheme: const TextTheme(
+        headlineLarge: TextStyle(
           fontSize: 32,
           fontWeight: FontWeight.bold,
           color: AppColors.onBackground,
         ),
-        headlineMedium: GoogleFonts.inter(
+        headlineMedium: TextStyle(
           fontSize: 24,
           fontWeight: FontWeight.w600,
           color: AppColors.onBackground,
         ),
-        titleLarge: GoogleFonts.inter(
+        titleLarge: TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w600,
           color: AppColors.onBackground,
         ),
-        titleMedium: GoogleFonts.inter(
+        titleMedium: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w500,
           color: AppColors.onBackground,
         ),
-        bodyLarge: GoogleFonts.inter(
+        bodyLarge: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.normal,
           color: AppColors.onBackground,
         ),
-        bodyMedium: GoogleFonts.inter(
+        bodyMedium: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.normal,
           color: AppColors.onSurface,
         ),
-        labelLarge: GoogleFonts.inter(
+        labelLarge: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w500,
           color: AppColors.onBackground,
         ),
-        labelSmall: GoogleFonts.inter(
+        labelSmall: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w500,
           color: AppColors.onSurface,
@@ -165,6 +165,7 @@ class AppTheme {
         onSurface: darkOnSurface,
       ),
       scaffoldBackgroundColor: darkBackground,
+      fontFamilyFallback: const <String>['Roboto', 'Noto Sans', 'Arial'],
       
       // AppBar Theme
       appBarTheme: AppBarTheme(
@@ -243,43 +244,43 @@ class AppTheme {
       ),
 
       // Text Theme
-      textTheme: TextTheme(
-        headlineLarge: GoogleFonts.inter(
+      textTheme: const TextTheme(
+        headlineLarge: TextStyle(
           fontSize: 32,
           fontWeight: FontWeight.bold,
           color: darkOnBackground,
         ),
-        headlineMedium: GoogleFonts.inter(
+        headlineMedium: TextStyle(
           fontSize: 24,
           fontWeight: FontWeight.w600,
           color: darkOnBackground,
         ),
-        titleLarge: GoogleFonts.inter(
+        titleLarge: TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w600,
           color: darkOnBackground,
         ),
-        titleMedium: GoogleFonts.inter(
+        titleMedium: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w500,
           color: darkOnBackground,
         ),
-        bodyLarge: GoogleFonts.inter(
+        bodyLarge: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.normal,
           color: darkOnBackground,
         ),
-        bodyMedium: GoogleFonts.inter(
+        bodyMedium: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.normal,
           color: darkOnSurface,
         ),
-        labelLarge: GoogleFonts.inter(
+        labelLarge: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w500,
           color: darkOnBackground,
         ),
-        labelSmall: GoogleFonts.inter(
+        labelSmall: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w500,
           color: darkOnSurface,

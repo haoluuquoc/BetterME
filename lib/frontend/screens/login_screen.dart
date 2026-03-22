@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -90,25 +91,47 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _checkBiometric() async {
-    final available = await _authService.isBiometricAvailable();
-    final enabled = await _authService.isBiometricEnabled();
-    String? linkedEmail;
-    if (available && enabled) {
-      linkedEmail = await _authService.getBiometricLinkedEmail();
-    }
-    if (mounted) {
-      setState(() {
-        _biometricAvailable = available;
-        _biometricEnabled = enabled;
-        _biometricLinkedEmail = linkedEmail;
-      });
-      if (available && enabled) {
-        final prefs = await SharedPreferences.getInstance();
-        final justLoggedOut = prefs.getBool('just_logged_out') ?? false;
-        if (!justLoggedOut) {
-          _loginWithBiometric();
+    try {
+      // Wrap entire biometric check with timeout to prevent UI hanging
+      // when Firestore cloud fallback is slow
+      await Future(() async {
+        final available = await _authService.isBiometricAvailable();
+        if (!available || !mounted) {
+          if (mounted) setState(() => _biometricAvailable = false);
+          return;
         }
-        await prefs.remove('just_logged_out');
+
+        // Use local-only check first for speed; cloud fallback has its own timeout
+        final enabled = await _authService.isBiometricEnabled();
+        String? linkedEmail;
+        if (enabled) {
+          linkedEmail = await _authService.getBiometricLinkedEmail();
+        }
+
+        if (!mounted) return;
+        setState(() {
+          _biometricAvailable = available;
+          _biometricEnabled = enabled;
+          _biometricLinkedEmail = linkedEmail;
+        });
+
+        if (available && enabled) {
+          final prefs = await SharedPreferences.getInstance();
+          final justLoggedOut = prefs.getBool('just_logged_out') ?? false;
+          if (!justLoggedOut) {
+            _loginWithBiometric();
+          }
+          await prefs.remove('just_logged_out');
+        }
+      }).timeout(const Duration(seconds: 5));
+    } catch (e) {
+      // Timeout or error — just show login form normally
+      debugPrint('Biometric check skipped: $e');
+      if (mounted) {
+        setState(() {
+          _biometricAvailable = false;
+          _biometricEnabled = false;
+        });
       }
     }
   }
@@ -139,10 +162,12 @@ class _LoginScreenState extends State<LoginScreen>
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
 
     final result = await _authService.loginWithEmail(
-      email: _emailController.text.trim(),
-      password: _passwordController.text,
+      email: email,
+      password: password,
     );
 
     setState(() => _isLoading = false);
@@ -153,25 +178,17 @@ class _LoginScreenState extends State<LoginScreen>
       final prefs = await SharedPreferences.getInstance();
       if (_savePassword) {
         await prefs.setBool('save_password', true);
-        await prefs.setString('saved_email', _emailController.text.trim());
-        await prefs.setString('saved_password', _passwordController.text);
+        await prefs.setString('saved_email', email);
+        await prefs.setString('saved_password', password);
       } else {
         await prefs.setBool('save_password', false);
         await prefs.remove('saved_email');
         await prefs.remove('saved_password');
       }
 
-      final biometricEnabled = await _authService.isBiometricEnabled();
-      if (biometricEnabled) {
-        await prefs.setString(
-            'biometric_saved_email', _emailController.text.trim());
-        await prefs.setString(
-            'biometric_saved_password', _passwordController.text);
-        await FirestoreService().saveBiometricCredentials(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
-        );
-      }
+      unawaited(
+        _syncBiometricCredentialsAfterLogin(email: email, password: password),
+      );
       Navigator.pushReplacementNamed(context, Routes.home);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -180,6 +197,28 @@ class _LoginScreenState extends State<LoginScreen>
           backgroundColor: AppColors.error,
         ),
       );
+    }
+  }
+
+  Future<void> _syncBiometricCredentialsAfterLogin({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final biometricEnabled = await _authService.isBiometricEnabled();
+      if (!biometricEnabled) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('biometric_saved_email', email);
+      await prefs.setString('biometric_saved_password', password);
+
+      await FirestoreService()
+          .saveBiometricCredentials(email: email, password: password)
+          .timeout(const Duration(seconds: 3));
+    } on TimeoutException {
+      debugPrint('saveBiometricCredentials timed out');
+    } catch (e) {
+      debugPrint('saveBiometricCredentials error: $e');
     }
   }
 
@@ -374,35 +413,35 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                       ),
 
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 8),
 
                       // Sign In button
                       _buildSignInButton(),
 
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
 
                       // Sign up link
                       _buildSignUpLink(),
 
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
 
                       // Divider
                       _buildDivider(),
 
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
 
                       // Google sign in
                       _buildGoogleButton(),
 
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
 
                       // Biometric
                       if (_biometricAvailable) ...[
                         _buildBiometricSection(),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 16),
                       ],
 
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 16),
                     ],
                   ),
                 ),
@@ -553,7 +592,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   Widget _buildLoginCard() {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: _bgCard.withOpacity(0.7),
         borderRadius: BorderRadius.circular(24),
@@ -903,7 +942,7 @@ class _LoginScreenState extends State<LoginScreen>
             animation: _pulseAnimation,
             builder: (context, child) {
               return Container(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(20),
                   gradient: LinearGradient(
@@ -941,40 +980,6 @@ class _LoginScreenState extends State<LoginScreen>
                   children: [
                     // Face ID custom icon
                     _buildFaceIdIcon(),
-                    const SizedBox(height: 12),
-                    Text(
-                      _biometricEnabled
-                          ? 'Đăng nhập bằng Face ID / Vân tay'
-                          : 'Face ID / Vân tay (chưa thiết lập)',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: _biometricEnabled
-                            ? _textPrimary
-                            : _textMuted,
-                        fontWeight: _biometricEnabled
-                            ? FontWeight.w600
-                            : FontWeight.normal,
-                      ),
-                    ),
-                    if (_biometricLinkedEmail != null &&
-                        _biometricEnabled) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        _biometricLinkedEmail!,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: _accentPurple,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                    if (!_biometricEnabled) ...[
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Đăng nhập → Cài đặt → Bật Face ID',
-                        style: TextStyle(fontSize: 11, color: _textMuted),
-                      ),
-                    ],
                   ],
                 ),
               );
