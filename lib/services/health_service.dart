@@ -773,11 +773,9 @@ class HealthService {
     // Sleep advice
     if (sleepHours != null) {
       if (sleepHours < 6) {
-        tips.add('😴 Bạn ngủ quá ít! Nên ngủ ít nhất 7 giờ mỗi đêm. Hãy cố đi ngủ sớm hơn ${(7 - sleepHours).toStringAsFixed(1)} giờ.');
-      } else if (sleepHours < 7) {
-        tips.add('😴 Bạn cần ngủ thêm ${(7 - sleepHours).toStringAsFixed(1)} giờ nữa để đạt mức khuyến nghị (7-9 giờ).');
+        tips.add('Thiếu ngủ: Nên duy trì giấc ngủ 7-8 giờ/đêm để phục hồi cơ bắp và thần kinh.');
       } else if (sleepHours > 9) {
-        tips.add('😴 Ngủ quá 9 giờ có thể gây mệt mỏi. Hãy thử ngủ 7-8 giờ và dậy sớm tập thể dục.');
+        tips.add('Hội chứng ngủ nhiều: Hãy thử ngủ 7-8 giờ và dậy sớm tập thể dục.');
       }
     }
 
@@ -786,32 +784,25 @@ class HealthService {
       if (bmi < 18.5) {
         final idealWeight = 18.5 * (heightCm! / 100) * (heightCm / 100);
         final needKg = idealWeight - weightKg!;
-        tips.add('🍎 BMI ${bmi.toStringAsFixed(1)} - Thiếu cân. Nên tăng ~${needKg.toStringAsFixed(1)} kg. Ăn thêm protein, carb và chất béo lành mạnh.');
-        tips.add('🥛 Nên ăn 5-6 bữa nhỏ/ngày, bổ sung sữa, trứng, thịt, cơm, và bơ đậu phộng.');
+        tips.add('Chế độ dinh dưỡng: Khuyến nghị tăng ~${needKg.toStringAsFixed(1)} kg. Nên ăn 5-6 bữa nhỏ/ngày, bổ sung protein (trứng, thịt, sữa) và carb lành mạnh.');
       } else if (bmi >= 25 && bmi < 30) {
         final idealWeight = 24.9 * (heightCm! / 100) * (heightCm / 100);
         final loseKg = weightKg! - idealWeight;
-        tips.add('🏃 BMI ${bmi.toStringAsFixed(1)} - Thừa cân. Nên giảm ~${loseKg.toStringAsFixed(1)} kg.');
-        final dailyKm = (loseKg * 0.5).clamp(2.0, 8.0);
-        tips.add('🏃 Nên chạy/đi bộ nhanh ${dailyKm.toStringAsFixed(1)} km/ngày và giảm đồ ngọt, đồ chiên.');
+        tips.add('Kiểm soát calo: Khuyến nghị giảm ~${loseKg.toStringAsFixed(1)} kg. Nên hạn chế đồ ngọt/chiên xào và ưu tiên chất xơ tươi.');
       } else if (bmi >= 30) {
-        final idealWeight = 24.9 * (heightCm! / 100) * (heightCm / 100);
-        final loseKg = weightKg! - idealWeight;
-        tips.add('⚠️ BMI ${bmi.toStringAsFixed(1)} - Béo phì. Cần giảm ~${loseKg.toStringAsFixed(1)} kg. Hãy tham khảo ý kiến bác sĩ.');
-        tips.add('🏃 Bắt đầu đi bộ nhanh 3-5 km/ngày, tránh nước ngọt và thức ăn nhanh.');
+        tips.add('Chế độ ăn kiêng: Thể trạng béo phì. Cần thiết lập chế độ giảm calo nghiêm ngặt và theo dõi y tế.');
       }
     }
 
     // Steps advice
     if (steps < 5000) {
-      tips.add('👟 Mới đi $steps bước. Mục tiêu 10,000 bước/ngày — hãy đi bộ thêm!');
-    } else if (steps < 10000) {
-      final remaining = 10000 - steps;
-      tips.add('👟 Tốt lắm! Đi thêm ${NumberFormat('#,###').format(remaining)} bước nữa để đạt mục tiêu 10,000 bước.');
+      tips.add('Vận động: Hôm nay cường độ di chuyển thấp ($steps bước). Hãy đứng dậy đi lại mỗi 1 tiếng làm việc.');
+    } else if (steps >= 10000) {
+      tips.add('Thành tích: Bạn đã vượt mốc 10,000 bước xuất sắc trong hôm nay.');
     }
 
     if (tips.isEmpty) {
-      tips.add('🎉 Tuyệt vời! Sức khỏe của bạn đang ở mức tốt. Hãy duy trì nhé!');
+      tips.add('Tổng quan: Trạng thái cơ thể đang duy trì ở mức ổn định. Hãy tiếp tục phát huy!');
     }
 
     return tips;

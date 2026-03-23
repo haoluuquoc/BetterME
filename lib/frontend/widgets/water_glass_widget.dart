@@ -124,7 +124,7 @@ class _WaterGlassWidgetState extends State<WaterGlassWidget>
           ),
           child: Text(
             isComplete 
-                ? '🎉 Hoàn thành mục tiêu!'
+                ? 'Hoàn thành mục tiêu!'
                 : '💧 Còn ${widget.goalMl - widget.currentMl}ml nữa',
             style: TextStyle(
               fontSize: 13,

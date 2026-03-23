@@ -2372,32 +2372,6 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
               ),
             ),
             const SizedBox(height: 16),
-            
-            // Gợi ý khoa học
-            Card(
-              color: Colors.blue.withOpacity(0.05),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Gợi ý khoa học',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Lượng gợi ý tự điều chỉnh theo lượng đã uống\n'
-                      'Nên uống nước ấm vào buổi sáng\n'
-                      'Tránh uống quá nhiều trước khi ngủ',
-                      style: TextStyle(color: Colors.grey[700], height: 1.5),
-                    ),
-                  ],
-                ),
-              ),
-            ),
           ],
         ],
       ),
@@ -2419,7 +2393,7 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
   // Tab 3: Lịch sử
   Widget _buildHistoryTab() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
