@@ -53,6 +53,15 @@ class FirestoreService {
       }
 
       await doc.set(meta, SetOptions(merge: true));
+
+      // Save reverse-lookup for username-based login
+      if (normalizedUsername != null && normalizedUsername.isNotEmpty && user.email != null) {
+        await _db.collection('usernames').doc(normalizedUsername.toLowerCase()).set({
+          'email': user.email,
+          'uid': user.uid,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
     } catch (e) {
       debugPrint('Firestore saveUserMeta error: $e');
     }

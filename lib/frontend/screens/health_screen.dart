@@ -189,9 +189,9 @@ class _HealthScreenState extends State<HealthScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: _bgColor,
+        backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         foregroundColor: Colors.white,
         title: const Text('Sức khỏe'),

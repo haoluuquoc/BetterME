@@ -81,7 +81,13 @@ class _SettingsContentState extends State<SettingsContent> {
     final themeProvider = Provider.of<ThemeProvider>(context);
     
     return Scaffold(
-      appBar: AppBar(title: const Text('Cài đặt')),
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text('Cài đặt', style: TextStyle(color: Colors.white)),
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
       body: ListView(
         children: [
           // ====== AVATAR VÀ EMAIL ======

@@ -7,6 +7,9 @@ import '../../app/routes/app_routes.dart';
 import '../../services/auth_service.dart';
 import '../../services/firestore_service.dart';
 
+// Import for username-to-email resolution
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 /// Login Screen - Giao diện đăng nhập premium với watercolor blue theme
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -142,7 +145,8 @@ class _LoginScreenState extends State<LoginScreen>
     if (saved) {
       setState(() {
         _savePassword = true;
-        _emailController.text = prefs.getString('saved_email') ?? '';
+        // Load username/email - ưu tiên username
+        _emailController.text = prefs.getString('saved_username') ?? prefs.getString('saved_email') ?? '';
         _passwordController.text = prefs.getString('saved_password') ?? '';
       });
     }
@@ -158,12 +162,50 @@ class _LoginScreenState extends State<LoginScreen>
     super.dispose();
   }
 
+  /// Resolve username to email via Firestore
+  Future<String?> _resolveUsernameToEmail(String username) async {
+    try {
+      final query = await FirebaseFirestore.instance
+          .collection('usernames')
+          .doc(username.toLowerCase())
+          .get();
+      if (query.exists) {
+        return query.data()?['email'] as String?;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Username resolution error: \$e');
+      return null;
+    }
+  }
+
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
-    final email = _emailController.text.trim();
+    final input = _emailController.text.trim();
     final password = _passwordController.text;
+
+    // Determine if input is email or username
+    String email;
+    if (input.contains('@')) {
+      email = input;
+    } else {
+      // Resolve username to email
+      final resolved = await _resolveUsernameToEmail(input);
+      if (resolved == null) {
+        setState(() => _isLoading = false);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Không tìm thấy tài khoản với tên này'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        return;
+      }
+      email = resolved;
+    }
 
     final result = await _authService.loginWithEmail(
       email: email,
@@ -178,10 +220,12 @@ class _LoginScreenState extends State<LoginScreen>
       final prefs = await SharedPreferences.getInstance();
       if (_savePassword) {
         await prefs.setBool('save_password', true);
+        await prefs.setString('saved_username', input);
         await prefs.setString('saved_email', email);
         await prefs.setString('saved_password', password);
       } else {
         await prefs.setBool('save_password', false);
+        await prefs.remove('saved_username');
         await prefs.remove('saved_email');
         await prefs.remove('saved_password');
       }
@@ -612,19 +656,19 @@ class _LoginScreenState extends State<LoginScreen>
         key: _formKey,
         child: Column(
           children: [
-            // Email field
+            // Account field (username or email)
             _buildTextField(
               controller: _emailController,
-              label: 'Email',
-              hint: 'example@email.com',
-              icon: Icons.email_outlined,
-              keyboardType: TextInputType.emailAddress,
+              label: 'Tài khoản',
+              hint: 'Tên tài khoản hoặc email',
+              icon: Icons.person_outline_rounded,
+              keyboardType: TextInputType.text,
               validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Vui lòng nhập email';
+                if (value == null || value.trim().isEmpty) {
+                  return 'Vui lòng nhập tài khoản';
                 }
-                if (!value.contains('@')) {
-                  return 'Email không hợp lệ';
+                if (value.trim().length < 4) {
+                  return 'Tài khoản phải có ít nhất 4 ký tự';
                 }
                 return null;
               },

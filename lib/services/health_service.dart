@@ -100,6 +100,7 @@ class HealthService {
       requestPermission: !kIsWeb && Platform.isIOS,
     );
     debugPrint('[HealthService.init] _todaySteps sau refreshHealth: $_todaySteps');
+    await _backfillMissedDaysSteps();
 
     // Phần pedometer: chỉ khởi tạo 1 lần
     if (!_initialized) {
@@ -114,6 +115,54 @@ class HealthService {
         _startListening();
         _initialized = true;
       }
+    }
+  }
+
+  /// Khôi phục dữ liệu bước chân của 7 ngày trước (trong trường hợp user mở máy mà không vào app, dẫn tới mất sync)
+  Future<void> _backfillMissedDaysSteps() async {
+    if (kIsWeb) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await _ensureHealthConfigured();
+
+      final now = DateTime.now();
+      
+      for (int i = 1; i <= 7; i++) {
+        final start = DateTime(now.year, now.month, now.day).subtract(Duration(days: i));
+        final end = DateTime(now.year, now.month, now.day).subtract(Duration(days: i - 1));
+        final dateKey = '${start.year}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')}';
+
+        // Kiểm tra xem lịch sử ngày này đã có chưa
+        final history = prefs.getStringList('steps_history') ?? [];
+        bool hasGoodData = false;
+        for (final entry in history) {
+          if (entry.startsWith('$dateKey|')) {
+            final parts = entry.split('|');
+            if (parts.length == 2 && (int.tryParse(parts[1]) ?? 0) > 0) {
+              hasGoodData = true;
+            }
+            break;
+          }
+        }
+
+        if (!hasGoodData) {
+          try {
+            final steps = await _health.getTotalStepsInInterval(start, end);
+            if (steps != null && steps > 0) {
+              await _upsertStepsHistoryEntry(prefs, dateKey, steps);
+              await FirestoreService().saveHealthDaily(
+                dateKey: dateKey,
+                steps: steps,
+              );
+              debugPrint('BACKFILLED missed steps for $dateKey: $steps');
+            }
+          } catch (e) {
+            debugPrint('Backfill error for $dateKey: $e');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Sync missed days error: $e');
     }
   }
 
@@ -492,21 +541,13 @@ class HealthService {
 
   void _startPeriodicReconcile() {
     _reconcileTimer?.cancel();
-    _reconcileTimer =
-        Timer.periodic(_realtimeReconcileInterval, (_) async {
-      if (!_initialized || _isReconciling) return;
-      _isReconciling = true;
-      try {
-        await refreshStepsFromHealth(
-          requestPermission: false,
-          saveHistory: false,
-        );
-      } catch (_) {
-        // Keep pedometer realtime updates running even if health reconciliation fails.
-      } finally {
-        _isReconciling = false;
-      }
-    });
+    // Tạm thời vô hiệu hóa vòng lặp gọi Apple Health/Google Fit mỗi 1 giây ngầm.
+    // Việc này giúp tránh xung đột dữ liệu với cảm biến Pedometer (gây khựng bước chân)
+    // và tiết kiệm lượng lớn pin cho người dùng.
+    // Dữ liệu sẽ chỉ đồng bộ với Health/Fit khi: 
+    // 1. Mở app lên (initState/init)
+    // 2. Chuyển từ chạy nền lên màn hình (resume)
+    // 3. User tự bấm nút làm mới.
   }
 
   void _onStepCount(StepCount event) async {

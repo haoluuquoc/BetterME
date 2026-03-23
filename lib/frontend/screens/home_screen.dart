@@ -16,7 +16,6 @@ import 'water_alarm_screen.dart';
 import 'update_alarm_screen.dart';
 import 'settings_screen.dart';
 import 'health_screen.dart';
-import 'expense_screen.dart';
 import '../widgets/water_glass_widget.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/rain_background.dart';
@@ -578,6 +577,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return child;
     }
     return const SizedBox.shrink();
+  }
+
   Widget _buildDynamicBackground(Widget child) {
     switch (_currentIndex) {
       case 2: // Chi tiêu
@@ -804,14 +805,17 @@ class _HomeContentState extends State<HomeContent> with WidgetsBindingObserver {
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             tooltip: 'Làm mới dữ liệu',
-            onPressed: () {
-              _loadData();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Đã làm mới dữ liệu'),
-                  duration: Duration(seconds: 1),
-                ),
-              );
+            onPressed: () async {
+              await _loadData();
+              await _initHealth();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Đã làm mới dữ liệu'),
+                    duration: Duration(seconds: 1),
+                  ),
+                );
+              }
             },
           ),
         ],
@@ -1905,8 +1909,12 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('Nhắc nhở uống nước'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text('Nhắc nhở uống nước', style: TextStyle(color: Colors.white)),
+        iconTheme: const IconThemeData(color: Colors.white),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -2025,44 +2033,6 @@ class _WaterReminderScreenState extends State<WaterReminderScreen>
           ],
           
           const SizedBox(height: 16),
-          
-          // Thông tin người dùng (đưa xuống cuối)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Thông tin của bạn',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      TextButton(
-                        onPressed: _showEditProfileDialog,
-                        child: const Text('Sửa'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Text('Cân nặng: ${_weight.toStringAsFixed(1)} kg'),
-                      const SizedBox(width: 24),
-                      Text('Chiều cao: ${_height.toStringAsFixed(0)} cm'),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Gợi ý: ${(_weight * 33).round()}ml/ngày (33ml × cân nặng)',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -2947,8 +2917,12 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('Quản lý chi tiêu'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text('Quản lý chi tiêu', style: TextStyle(color: Colors.white)),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Column(
         children: [
