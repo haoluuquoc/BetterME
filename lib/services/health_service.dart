@@ -1,8 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:health/health.dart';
@@ -59,6 +59,8 @@ class HealthService {
   Timer? _reconcileTimer;
   DateTime? _lastHistoryPersistAt;
   bool _isReconciling = false;
+  final bool _legacySensorCountingEnabled = false;
+  double _pendingDistanceMetersForSteps = 0;
 
   bool _initialized = false;
 
@@ -551,6 +553,11 @@ class HealthService {
   }
 
   void _onStepCount(StepCount event) async {
+    if (!_legacySensorCountingEnabled) {
+      _lastRawSteps = event.steps;
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final todayKey = _todayKey();
     final savedDate = prefs.getString('steps_date') ?? '';
@@ -625,6 +632,183 @@ class HealthService {
     }
     _lastSavedSteps = _todaySteps;
     _stepsController.add(_todaySteps);
+  }
+
+  /// Cộng bước theo quãng đường thực tế khi user đang bật phiên hoạt động.
+  /// Dùng cho cơ chế mới: chỉ tăng bước khi đang tracking và có di chuyển thật.
+  Future<int> addStepsFromTrackedDistance({
+    required double distanceMeters,
+    double strideMeters = 0.762,
+  }) async {
+    if (distanceMeters <= 0 || strideMeters <= 0) return _todaySteps;
+
+    _pendingDistanceMetersForSteps += distanceMeters;
+    final stepsDelta = (_pendingDistanceMetersForSteps / strideMeters).floor();
+    if (stepsDelta <= 0) return _todaySteps;
+    _pendingDistanceMetersForSteps -= stepsDelta * strideMeters;
+
+    final prefs = await SharedPreferences.getInstance();
+    final todayKey = _todayKey();
+    final savedDate = prefs.getString('steps_date') ?? '';
+
+    if (savedDate != todayKey) {
+      if (savedDate.isNotEmpty && _todaySteps > 0) {
+        await saveTodayStepsToHistory();
+      }
+      _todaySteps = 0;
+      _lastSavedSteps = 0;
+      await prefs.setString('steps_date', todayKey);
+    }
+
+    _todaySteps += stepsDelta;
+    await prefs.setInt('steps_today', _todaySteps);
+
+    if (_lastRawSteps != null) {
+      final inferredBaseline = (_lastRawSteps! - _todaySteps).clamp(0, _lastRawSteps!);
+      await prefs.setInt('steps_baseline', inferredBaseline);
+      await _clearRebaseFlags(prefs);
+    } else {
+      await prefs.setBool('steps_need_rebase', true);
+      await prefs.setInt('steps_rebase_target', _todaySteps);
+      await prefs.setString('steps_rebase_date', todayKey);
+    }
+
+    _stepsController.add(_todaySteps);
+    _debouncedSave();
+    return _todaySteps;
+  }
+
+  Future<void> saveActivitySession({
+    required String mode,
+    required DateTime startedAt,
+    required DateTime endedAt,
+    required double distanceMeters,
+    required int stepsDelta,
+    double? avgSpeedMps,
+    String source = 'gps_tracking',
+    List<Map<String, dynamic>>? segments,
+    String? sessionId,
+    bool upsert = false,
+  }) async {
+    if (distanceMeters <= 0 && stepsDelta <= 0) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final sessions = prefs.getStringList('activity_sessions') ?? [];
+
+    final safeEndedAt = endedAt.isBefore(startedAt) ? startedAt : endedAt;
+    final durationSec = safeEndedAt.difference(startedAt).inSeconds;
+
+    final id = sessionId ?? DateTime.now().millisecondsSinceEpoch.toString();
+    final payload = <String, dynamic>{
+      'id': id,
+      'mode': mode,
+      'startedAt': startedAt.toIso8601String(),
+      'endedAt': safeEndedAt.toIso8601String(),
+      'durationSec': durationSec,
+      'distanceMeters': distanceMeters,
+      'stepsDelta': stepsDelta,
+      'avgSpeedMps': avgSpeedMps ?? 0,
+      'source': source,
+    };
+    if (segments != null && segments.isNotEmpty) {
+      payload['segments'] = segments;
+    }
+
+    if (upsert) {
+      final index = sessions.indexWhere((row) {
+        try {
+          final decoded = jsonDecode(row);
+          return decoded is Map<String, dynamic> && decoded['id'] == id;
+        } catch (_) {
+          return false;
+        }
+      });
+      if (index >= 0) {
+        sessions[index] = jsonEncode(payload);
+      } else {
+        sessions.add(jsonEncode(payload));
+      }
+    } else {
+      sessions.add(jsonEncode(payload));
+    }
+    while (sessions.length > 200) {
+      sessions.removeAt(0);
+    }
+    await prefs.setStringList('activity_sessions', sessions);
+    await _syncTodayActivityBreakdownToFirestore();
+  }
+
+  Future<void> _syncTodayActivityBreakdownToFirestore() async {
+    final sessions = await getActivitySessions(limit: 200);
+    final todayKey = _todayKey();
+
+    double walkMeters = 0;
+    double runMeters = 0;
+    double bikeMeters = 0;
+
+    for (final item in sessions) {
+      final endedAtRaw = (item['endedAt'] ?? '').toString();
+      final endedAt = DateTime.tryParse(endedAtRaw);
+      if (endedAt == null || _dateKeyFromDate(endedAt) != todayKey) {
+        continue;
+      }
+
+      final segments = item['segments'];
+      if (segments is List) {
+        for (final raw in segments) {
+          if (raw is! Map) continue;
+          final mode = (raw['mode'] ?? '').toString().toLowerCase();
+          final meters = (raw['distanceMeters'] as num?)?.toDouble() ?? 0;
+          if (meters <= 0) continue;
+          if (mode == 'walk') walkMeters += meters;
+          if (mode == 'run' || mode == 'running') runMeters += meters;
+          if (mode == 'bike') bikeMeters += meters;
+        }
+      } else {
+        final mode = (item['mode'] ?? '').toString().toLowerCase();
+        final meters = (item['distanceMeters'] as num?)?.toDouble() ?? 0;
+        if (meters <= 0) continue;
+        if (mode == 'walk') walkMeters += meters;
+        if (mode == 'run' || mode == 'running') runMeters += meters;
+        if (mode == 'bike') bikeMeters += meters;
+      }
+    }
+
+    final totalMeters = walkMeters + runMeters + bikeMeters;
+    double toKm(double meters) => double.parse((meters / 1000).toStringAsFixed(3));
+    await FirestoreService().saveHealthDaily(
+      dateKey: todayKey,
+      activityBreakdown: {
+        'walkKm': toKm(walkMeters),
+        'runKm': toKm(runMeters),
+        'bikeKm': toKm(bikeMeters),
+        'totalKm': toKm(totalMeters),
+      },
+    );
+  }
+
+  String _dateKeyFromDate(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<List<Map<String, dynamic>>> getActivitySessions({int limit = 30}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final sessions = prefs.getStringList('activity_sessions') ?? [];
+    final result = <Map<String, dynamic>>[];
+
+    for (final row in sessions.reversed) {
+      try {
+        final map = jsonDecode(row);
+        if (map is Map<String, dynamic>) {
+          result.add(map);
+        }
+      } catch (_) {
+        // Skip malformed rows.
+      }
+      if (result.length >= limit) break;
+    }
+
+    return result;
   }
 
   /// Khoảng cách (km) từ số bước chân (avg stride 0.762m)
@@ -769,6 +953,19 @@ class HealthService {
   }) {
     final tips = <String>[];
     final bmi = calculateBMI(weightKg, heightCm);
+    final dayOfWeek = DateTime.now().weekday;
+
+    // Daily rotating healthy menu
+    const dailyMenus = {
+      1: 'Thực đơn lành mạnh hôm nay: Ưu tiên đạm từ cá và rau xanh lá đậm. Bắt đầu tuần mới bằng 15 phút thiền hoặc giãn cơ buổi sáng.',
+      2: 'Thực đơn lành mạnh hôm nay: Bổ sung ngũ cốc nguyên hạt và trái cây mọng nước. Thử thay thang máy bằng thang bộ trong ngày.',
+      3: 'Thực đơn lành mạnh hôm nay: Nạp năng lượng với các loại hạt và sữa chua không đường. Uống đủ 2 lít nước để tăng trao đổi chất.',
+      4: 'Thực đơn lành mạnh hôm nay: Tập trung vào chất béo lành mạnh (bơ, dầu olive) và thịt trắng. Đi bộ nhẹ nhàng sau bữa tối.',
+      5: 'Thực đơn lành mạnh hôm nay: Giảm muối và đường tinh luyện. Thưởng thức nước ép quả tươi để bổ sung vitamin C cuối tuần.',
+      6: 'Thực đơn lành mạnh hôm nay: Ngày thanh lọc với nhiều rau củ quả. Dành 30 phút cho hoạt động thể thao ngoài trời.',
+      7: 'Thực đơn lành mạnh hôm nay: Bữa sáng giàu dinh dưỡng và thư giãn tinh thần. Tắt thiết bị điện tử sớm để chuẩn bị giấc ngủ sâu.',
+    };
+    tips.add(dailyMenus[dayOfWeek]!);
 
     // Sleep advice
     if (sleepHours != null) {
@@ -784,11 +981,11 @@ class HealthService {
       if (bmi < 18.5) {
         final idealWeight = 18.5 * (heightCm! / 100) * (heightCm / 100);
         final needKg = idealWeight - weightKg!;
-        tips.add('Chế độ dinh dưỡng: Khuyến nghị tăng ~${needKg.toStringAsFixed(1)} kg. Nên ăn 5-6 bữa nhỏ/ngày, bổ sung protein (trứng, thịt, sữa) và carb lành mạnh.');
+        tips.add('Chế độ dinh dưỡng: Khuyến nghị tăng ~${needKg.toStringAsFixed(1)} kg. Ăn 5-6 bữa nhỏ/ngày, bổ sung protein và carb lành mạnh.');
       } else if (bmi >= 25 && bmi < 30) {
         final idealWeight = 24.9 * (heightCm! / 100) * (heightCm / 100);
         final loseKg = weightKg! - idealWeight;
-        tips.add('Kiểm soát calo: Khuyến nghị giảm ~${loseKg.toStringAsFixed(1)} kg. Nên hạn chế đồ ngọt/chiên xào và ưu tiên chất xơ tươi.');
+        tips.add('Kiểm soát calo: Khuyến nghị giảm ~${loseKg.toStringAsFixed(1)} kg. Hạn chế đồ ngọt/chiên xào và ưu tiên chất xơ tươi.');
       } else if (bmi >= 30) {
         tips.add('Chế độ ăn kiêng: Thể trạng béo phì. Cần thiết lập chế độ giảm calo nghiêm ngặt và theo dõi y tế.');
       }
@@ -799,10 +996,6 @@ class HealthService {
       tips.add('Vận động: Hôm nay cường độ di chuyển thấp ($steps bước). Hãy đứng dậy đi lại mỗi 1 tiếng làm việc.');
     } else if (steps >= 10000) {
       tips.add('Thành tích: Bạn đã vượt mốc 10,000 bước xuất sắc trong hôm nay.');
-    }
-
-    if (tips.isEmpty) {
-      tips.add('Tổng quan: Trạng thái cơ thể đang duy trì ở mức ổn định. Hãy tiếp tục phát huy!');
     }
 
     return tips;

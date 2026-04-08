@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart'
     show kIsWeb, debugPrint, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'firebase_options.dart';
 import 'app/app.dart';
 import 'services/notification_service.dart';
@@ -16,8 +17,22 @@ bool get _isFirebaseConfigured {
   return false;
 }
 
+Future<void> _initAudioBackground() async {
+  if (kIsWeb) return;
+  try {
+    await JustAudioBackground.init(
+      androidNotificationChannelId: 'com.betterme.betterme.sleep_audio',
+      androidNotificationChannelName: 'BetterMe Sleep Audio',
+      androidNotificationOngoing: true,
+    );
+  } catch (e) {
+    debugPrint('Audio background init error: $e');
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _initAudioBackground();
   
   bool isAlarmLaunch = false;
   bool isSnoozeLaunch = false;

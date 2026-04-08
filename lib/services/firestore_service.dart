@@ -269,6 +269,7 @@ class FirestoreService {
     double? sleepHours,
     double? weightKg,
     double? heightCm,
+    Map<String, dynamic>? activityBreakdown,
   }) async {
     final doc = _userDoc;
     if (doc == null) return;
@@ -279,6 +280,9 @@ class FirestoreService {
       if (steps != null) data['steps'] = steps;
       if (sleepHours != null) data['sleepHours'] = sleepHours;
       if (weightKg != null) data['weightKg'] = weightKg;
+      if (activityBreakdown != null) {
+        data['activityBreakdown'] = activityBreakdown;
+      }
 
       await doc.collection('health_daily').doc(dateKey).set(
         data,

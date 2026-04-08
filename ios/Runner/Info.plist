@@ -62,6 +62,7 @@
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>audio</string>
 		<string>fetch</string>
 		<string>remote-notification</string>
 	</array>
@@ -77,6 +78,10 @@
 	<string>BetterME cần quyền đọc dữ liệu bước chân để cập nhật chính xác</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>BetterME không ghi dữ liệu sức khỏe, chỉ đọc để hiển thị</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>BetterME cần quyền vị trí để ghi nhận quãng đường di chuyển khi bạn bấm bắt đầu hoạt động</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>BetterME dùng vị trí để theo dõi quãng đường trong phiên hoạt động của bạn</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

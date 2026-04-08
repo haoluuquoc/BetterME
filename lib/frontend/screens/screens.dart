@@ -7,4 +7,5 @@ export 'habits_screen.dart';
 export 'statistics_screen.dart';
 export 'settings_screen.dart';
 export 'health_screen.dart';
+export 'activity_tracking_screen.dart';
 export 'step_history_screen.dart';

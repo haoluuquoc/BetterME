@@ -7,6 +7,8 @@ import 'package:intl/intl.dart';
 import '../../app/theme/app_colors.dart';
 import '../../services/health_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'activity_tracking_screen.dart';
+import 'sleep_music_sheet.dart';
 import 'step_history_screen.dart';
 
 /// Màn hình Sức khỏe — bước chân, giấc ngủ, cân nặng, sinh nhật
@@ -272,11 +274,19 @@ class _HealthScreenState extends State<HealthScreen>
           ),
           const SizedBox(height: 16),
 
-          _buildActivityRingCard(
-            theme,
-            ringProgress,
-            caloriesInt,
-            caloriesGoal,
+          GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ActivityTrackingScreen(todaySteps: _todaySteps),
+              ),
+            ),
+            child: _buildActivityRingCard(
+              theme,
+              ringProgress,
+              caloriesInt,
+              caloriesGoal,
+            ),
           ),
           const SizedBox(height: 16),
 
@@ -314,29 +324,43 @@ class _HealthScreenState extends State<HealthScreen>
           Row(
             children: [
               Expanded(
-                child: _buildSmallMetricCard(
-                  theme,
-                  title: 'Giấc ngủ',
-                  value: _todaySleep != null
-                      ? '${_todaySleep!.toStringAsFixed(1)}h'
-                      : '--',
-                  icon: Icons.bedtime,
-                  color: Colors.indigoAccent,
+                child: GestureDetector(
+                  onTap: _showSleepDialog,
+                  child: _buildSmallMetricCard(
+                    theme,
+                    title: 'Giấc ngủ',
+                    value: _todaySleep != null
+                        ? '${_todaySleep!.toStringAsFixed(1)}h'
+                        : '--',
+                    color: Colors.indigoAccent,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _buildSmallMetricCard(
-                  theme,
-                  title: 'Cân nặng',
-                  value: _latestWeight != null
-                      ? '${_latestWeight!.toStringAsFixed(1)} kg'
-                      : '--',
-                  icon: Icons.monitor_weight,
-                  color: Colors.tealAccent.shade700,
+                child: GestureDetector(
+                  onTap: _showWeightDialog,
+                  child: _buildSmallMetricCard(
+                    theme,
+                    title: 'Cân nặng',
+                    value: _latestWeight != null
+                        ? '${_latestWeight!.toStringAsFixed(1)} kg'
+                        : '--',
+                    color: Colors.tealAccent.shade700,
+                  ),
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: _showSleepMusicSheet,
+            child: _buildSmallMetricCard(
+              theme,
+              title: 'Nhạc ngủ',
+              value: 'Mở danh sách phát thư giãn',
+              color: Colors.lightBlueAccent,
+            ),
           ),
           const SizedBox(height: 16),
 
@@ -468,7 +492,7 @@ class _HealthScreenState extends State<HealthScreen>
                   ),
                 ),
               ),
-              Icon(Icons.chevron_right, color: _accentGreen, size: 20),
+              // Arrow removed
             ],
           ),
           const SizedBox(height: 8),
@@ -535,7 +559,6 @@ class _HealthScreenState extends State<HealthScreen>
     ThemeData theme, {
     required String title,
     required String value,
-    required IconData icon,
     required Color color,
   }) {
     return Container(
@@ -544,36 +567,21 @@ class _HealthScreenState extends State<HealthScreen>
         borderRadius: BorderRadius.circular(18),
       ),
       padding: const EdgeInsets.all(16),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
-              shape: BoxShape.circle,
+          Text(
+            title,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.grey[500],
             ),
-            child: Icon(icon, color: color, size: 18),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.grey[500],
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -1223,6 +1231,18 @@ class _HealthScreenState extends State<HealthScreen>
             child: const Text('Lưu'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showSleepMusicSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const FractionallySizedBox(
+        heightFactor: 0.9,
+        child: SleepMusicSheet(),
       ),
     );
   }
